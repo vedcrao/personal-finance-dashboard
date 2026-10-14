@@ -1,0 +1,364 @@
+"use client"
+
+import { Fragment, useMemo, useState } from "react"
+import { useFinance } from "@/components/providers/FinanceProvider"
+import { Panel } from "@/components/ui/Panel"
+import { Badge } from "@/components/ui/Badge"
+import { Icon } from "@/components/ui/Icon"
+import { Money } from "@/components/ui/Money"
+import { SegmentedControl } from "@/components/ui/SegmentedControl"
+import { EmptyState } from "@/components/ui/States"
+import { RecurringView } from "./RecurringView"
+import { ZelleSummary } from "./ZelleSummary"
+import {
+  ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_ORDER, categoryBreakdown, categoryStyle, formatLocation, getBillingPeriods,
+  flowOf, getRecentMonths, isSpend, spendAmount, ymd, type Flow,
+} from "@/lib/finance"
+import { shortDate } from "@/lib/format"
+import type { Transaction } from "@/lib/types"
+
+const MONTHS = getRecentMonths(6)
+
+const FLOW_SHORT: Record<Flow, string> = { income: "Income", expense: "Expense", reimbursement: "Reimbursed", transfer: "Ignored" }
+const FLOW_PILL: Record<Flow, string> = {
+  income: "bg-tertiary/10 text-tertiary",
+  expense: "bg-rose-500/10 text-rose-300",
+  reimbursement: "bg-secondary/10 text-secondary",
+  transfer: "bg-surface-container-highest text-on-surface-variant",
+}
+
+export interface TransactionsViewProps {
+  initial: { account: string | null; tab: "transactions" | "recurring"; view: "month" | "statement"; month: string | null; category: string | null }
+}
+
+export function TransactionsView({ initial }: TransactionsViewProps) {
+  const { accounts, transactions, loading, editTransaction } = useFinance()
+  const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts])
+
+  const [tab, setTab] = useState(initial.tab)
+  const [accountId, setAccountId] = useState<string | null>(initial.account && accountById.has(initial.account) ? initial.account : null)
+  const account = accountId ? accountById.get(accountId) : undefined
+  const canStatement = account?.type === "credit" && !!account.billing_cycle_day
+
+  const [viewMode, setViewMode] = useState<"month" | "statement">(initial.view === "statement" ? "statement" : "month")
+  const effectiveView = canStatement ? viewMode : "month"
+  const currentMonth = ymd(new Date()).slice(0, 7)
+  const [month, setMonth] = useState(initial.month ?? currentMonth)
+  const periods = canStatement ? getBillingPeriods(account!.billing_cycle_day!) : []
+  const [periodIdx, setPeriodIdx] = useState(2)
+
+  const [category, setCategory] = useState<string | null>(initial.category)
+  const [location, setLocation] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
+  const [showLocation, setShowLocation] = useState(false)
+
+  const scoped = useMemo(() => (accountId ? transactions.filter((t) => t.account_id === accountId) : transactions), [transactions, accountId])
+
+  const inPeriod = (d: string) => {
+    if (effectiveView === "statement" && periods[periodIdx]) return d >= periods[periodIdx].start && d <= periods[periodIdx].end
+    return d.startsWith(month)
+  }
+
+  const periodTxns = scoped.filter((t) => inPeriod(t.date))
+  const spendTxns = periodTxns.filter(isSpend)
+  const totalSpend = spendTxns.reduce((s, t) => s + spendAmount(t), 0)
+  const cats = categoryBreakdown(periodTxns)
+  const zelleCount = periodTxns.filter((t) => t.category === "Zelle").length
+  const topCategory = cats[0]
+
+  const now = new Date()
+  const projected =
+    effectiveView === "month" && month === currentMonth
+      ? (totalSpend / now.getDate()) * new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+      : null
+
+  const locationTotals = new Map<string, number>()
+  for (const t of spendTxns) {
+    const loc = formatLocation(t)
+    if (loc) locationTotals.set(loc, (locationTotals.get(loc) ?? 0) + spendAmount(t))
+  }
+  const locations = [...locationTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+
+  const q = query.trim().toLowerCase()
+  const filtered = periodTxns.filter((t) => {
+    if (category && (t.category ?? "Uncategorized") !== category) return false
+    if (location && formatLocation(t) !== location) return false
+    if (q && !`${t.merchant_name ?? ""} ${t.description} ${t.category ?? ""}`.toLowerCase().includes(q)) return false
+    return true
+  })
+
+  const grouped: [string, Transaction[]][] = accountId
+    ? [["", filtered]]
+    : ACCOUNT_TYPE_ORDER.map((type): [string, Transaction[]] => [type, filtered.filter((t) => accountById.get(t.account_id)?.type === type)]).filter(([, l]) => l.length > 0)
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <SegmentedControl
+            ariaLabel="View"
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "transactions", label: "Transactions" },
+              { value: "recurring", label: "Recurring" },
+            ]}
+          />
+          <label className="relative">
+            <span className="sr-only">Account</span>
+            <select
+              value={accountId ?? ""}
+              onChange={(e) => { setAccountId(e.target.value || null); setViewMode("month") }}
+              className="h-10 appearance-none rounded-full border border-white/[0.08] bg-white/[0.04] pr-9 pl-4 text-sm font-semibold outline-none focus:border-indigo-brand"
+            >
+              <option value="">All accounts</option>
+              {ACCOUNT_TYPE_ORDER.map((type) => {
+                const group = accounts.filter((a) => a.type === type)
+                if (!group.length) return null
+                return (
+                  <optgroup key={type} label={ACCOUNT_TYPE_LABELS[type]}>
+                    {group.map((a) => <option key={a.id} value={a.id}>{a.name}{a.mask ? ` ••${a.mask}` : ""}</option>)}
+                  </optgroup>
+                )
+              })}
+            </select>
+            <Icon name="expand_more" size={18} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-on-surface-variant" />
+          </label>
+        </div>
+
+        {tab === "transactions" && (
+          <div className="flex flex-wrap items-center gap-2">
+            {canStatement && (
+              <SegmentedControl
+                size="sm"
+                ariaLabel="Period type"
+                value={viewMode}
+                onChange={setViewMode}
+                options={[{ value: "month", label: "Month" }, { value: "statement", label: "Statement" }]}
+              />
+            )}
+            <div className="flex gap-1 overflow-x-auto">
+              {effectiveView === "month"
+                ? MONTHS.map((m) => (
+                    <button key={m.value} type="button" onClick={() => setMonth(m.value)}
+                      className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${month === m.value ? "bg-indigo-brand text-white" : "border border-white/[0.06] bg-white/[0.04] text-on-surface-variant hover:text-on-surface"}`}>
+                      {m.label}
+                    </button>
+                  ))
+                : periods.map((p, i) => (
+                    <button key={p.end} type="button" onClick={() => setPeriodIdx(i)}
+                      className={`rounded-xl px-3.5 py-1 text-left text-xs font-semibold leading-tight transition-colors ${periodIdx === i ? "bg-indigo-brand text-white" : "border border-white/[0.06] bg-white/[0.04] text-on-surface-variant hover:text-on-surface"}`}>
+                      <div>{p.label}</div>
+                      <div className="font-normal opacity-70">{shortDate(p.start)} → {shortDate(p.end)}</div>
+                    </button>
+                  ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {tab === "recurring" ? (
+        <RecurringView transactions={scoped} />
+      ) : (
+        <>
+          {/* Summary */}
+          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+            {[
+              { label: effectiveView === "statement" ? "Statement spend" : "Total spend", node: <Money value={totalSpend} />, sub: `${spendTxns.length} purchases`, icon: "payments", cls: "bg-secondary/10 text-secondary" },
+              projected !== null
+                ? { label: "Projected month", node: <Money value={projected} />, sub: "at current daily pace", icon: "trending_up", cls: "bg-primary/10 text-primary" }
+                : { label: "Avg purchase", node: <Money value={spendTxns.length ? totalSpend / spendTxns.length : 0} />, sub: "per transaction", icon: "functions", cls: "bg-primary/10 text-primary" },
+              { label: "Top category", node: <span className="truncate">{topCategory?.category ?? "—"}</span>, sub: topCategory ? <Money value={topCategory.amount} /> : "", icon: topCategory ? categoryStyle(topCategory.category).icon : "category", cls: "bg-amber-500/10 text-amber-300" },
+              { label: "Flagged", node: <span>{periodTxns.filter((t) => t.is_anomaly).length}</span>, sub: "unusual transactions", icon: "gpp_maybe", cls: "bg-error-container/30 text-error" },
+            ].map((c) => (
+              <div key={c.label} className="glass flex items-start gap-3 rounded-2xl p-5">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${c.cls}`}><Icon name={c.icon} size={20} /></div>
+                <div className="min-w-0">
+                  <p className="text-xs text-on-surface-variant">{c.label}</p>
+                  <p className="truncate text-xl font-bold tracking-tight">{c.node}</p>
+                  <p className="truncate text-[11px] text-on-surface-variant">{c.sub}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Category + location */}
+          <div className="grid grid-cols-12 gap-6">
+            <div className="col-span-12 xl:col-span-7">
+              <Panel title="Spend by Category" icon="donut_large" iconClass="text-primary" className="h-full"
+                action={
+                  <div className="flex items-center gap-3">
+                    {zelleCount > 0 && (
+                      <button type="button" onClick={() => setCategory(category === "Zelle" ? null : "Zelle")}
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${category === "Zelle" ? "bg-violet-500/25 text-violet-200 ring-1 ring-violet-400/50" : "bg-violet-500/10 text-violet-300 hover:bg-violet-500/20"}`}>
+                        <Icon name="currency_exchange" size={14} /> Zelle ({zelleCount})
+                      </button>
+                    )}
+                    {category && <button type="button" onClick={() => setCategory(null)} className="text-xs font-semibold text-primary hover:underline">Clear</button>}
+                  </div>
+                }>
+                {cats.length === 0 ? <EmptyState icon="donut_large" title="No spending in this period" /> : (
+                  <div className="grid grid-cols-1 gap-x-6 gap-y-1 lg:grid-cols-2">
+                    {cats.map((c) => {
+                      const s = categoryStyle(c.category)
+                      const sel = category === c.category
+                      return (
+                        <button key={c.category} type="button" onClick={() => setCategory(sel ? null : c.category)}
+                          className={`flex items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors ${sel ? "bg-surface-container-high ring-1 ring-indigo-brand/40" : "hover:bg-surface-container-high/50"}`}>
+                          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${s.bg} ${s.text}`}><Icon name={s.icon} size={16} /></div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex justify-between gap-2 text-xs">
+                              <span className="truncate font-semibold">{c.category}</span>
+                              <Money value={c.amount} className="font-semibold" />
+                            </div>
+                            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-container-highest">
+                              <div className={`h-full rounded-full ${s.bar}`} style={{ width: `${c.pct}%` }} />
+                            </div>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </Panel>
+            </div>
+            <div className="col-span-12 xl:col-span-5">
+              <Panel title="Spend by Location" icon="location_on" iconClass="text-fuchsia-300" className="h-full"
+                action={
+                  <div className="flex items-center gap-2">
+                    {location && <button type="button" onClick={() => setLocation(null)} className="text-xs font-semibold text-primary hover:underline">Clear</button>}
+                    <button type="button" onClick={() => setShowLocation((v) => !v)} aria-expanded={showLocation} aria-label="Toggle locations" className="text-on-surface-variant hover:text-on-surface">
+                      <Icon name={showLocation ? "expand_less" : "expand_more"} />
+                    </button>
+                  </div>
+                }>
+                {!showLocation ? (
+                  <p className="text-sm text-on-surface-variant">
+                    {locations.length ? `${locations.length} places · top: ${locations[0][0]}` : "No location data for this period."}
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {locations.map(([loc, amt]) => {
+                      const sel = location === loc
+                      return (
+                        <button key={loc} type="button" onClick={() => setLocation(sel ? null : loc)}
+                          className={`flex items-center gap-3 rounded-xl px-2 py-2 text-left text-xs transition-colors ${sel ? "bg-surface-container-high ring-1 ring-fuchsia-400/40" : "hover:bg-surface-container-high/50"}`}>
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-fuchsia-400" />
+                          <span className="w-32 truncate">{loc}</span>
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-container-highest">
+                            <div className="h-full rounded-full bg-fuchsia-400" style={{ width: `${totalSpend ? (amt / totalSpend) * 100 : 0}%` }} />
+                          </div>
+                          <Money value={amt} className="w-20 text-right font-semibold" />
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </Panel>
+            </div>
+          </div>
+
+          {category === "Zelle" && <ZelleSummary transactions={periodTxns} />}
+
+          {/* Table */}
+          <Panel
+            padded={false}
+            title={<div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Transactions</h2><Badge>{filtered.length}</Badge></div>}
+            action={
+              <div className="flex items-center gap-2">
+                {[
+                  { v: category, clear: () => setCategory(null), cls: "bg-primary/10 text-primary" },
+                  { v: location, clear: () => setLocation(null), cls: "bg-fuchsia-500/10 text-fuchsia-300" },
+                ].map((f) => f.v && (
+                  <button key={f.v} type="button" onClick={f.clear} aria-label={`Clear ${f.v} filter`}
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${f.cls}`}>
+                    {f.v} <Icon name="close" size={14} />
+                  </button>
+                ))}
+                <label className="relative">
+                  <span className="sr-only">Search transactions</span>
+                  <Icon name="search" size={18} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-on-surface-variant" />
+                  <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search merchant or category"
+                    className="h-9 w-64 rounded-full border border-white/10 bg-surface-container-lowest pr-3 pl-9 text-sm outline-none placeholder:text-slate-500 focus:border-indigo-brand focus:ring-2 focus:ring-indigo-brand/25" />
+                </label>
+              </div>
+            }
+          >
+            {loading && !transactions.length ? (
+              <p className="px-6 py-10 text-center text-sm text-on-surface-variant">Loading…</p>
+            ) : filtered.length === 0 ? (
+              <EmptyState icon="receipt_long" title="No transactions for this period" />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
+                      <th className="px-6 py-3 text-left">Date</th>
+                      <th className="px-4 py-3 text-left">Merchant</th>
+                      {!accountId && <th className="px-4 py-3 text-left">Account</th>}
+                      <th className="px-4 py-3 text-left">Category</th>
+                      <th className="px-4 py-3 text-left">Location</th>
+                      <th className="px-4 py-3 text-left">Counts as</th>
+                      <th className="px-6 py-3 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grouped.map(([type, list]) => (
+                      <Fragment key={type || "all"}>
+                        {type && (
+                          <tr className="bg-surface-container-low/60">
+                            <td colSpan={7} className="px-6 py-2 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">{ACCOUNT_TYPE_LABELS[type]}</td>
+                          </tr>
+                        )}
+                        {list.map((t) => {
+                          const loc = formatLocation(t)
+                          const s = categoryStyle(t.category)
+                          const a = accountById.get(t.account_id)
+                          return (
+                            <tr key={t.id} className="border-b border-white/[0.04] transition-colors last:border-0 hover:bg-surface-container-high/40">
+                              <td className="px-6 py-3 whitespace-nowrap text-on-surface-variant">{shortDate(t.date)}</td>
+                              <td className="max-w-[260px] truncate px-4 py-3 font-semibold">
+                                <button type="button" onClick={() => editTransaction(t)} className="max-w-full truncate text-left hover:underline">{t.merchant_name ?? t.description}</button>
+                                {t.pending && <Badge tone="warning" className="ml-1.5 !px-1.5 !py-0 text-[9px]">Pending</Badge>}
+                                {t.is_anomaly && <Icon name="gpp_maybe" size={14} className="ml-1.5 align-[-2px] text-amber-300" />}
+                              </td>
+                              {!accountId && <td className="max-w-[160px] truncate px-4 py-3 text-on-surface-variant">{a?.name ?? "—"}</td>}
+                              <td className="px-4 py-3">
+                                {t.category ? (
+                                  <button type="button" onClick={() => setCategory(category === t.category ? null : t.category)}
+                                    className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs transition-colors ${category === t.category ? "bg-surface-container-highest" : "hover:bg-surface-container-high"}`}>
+                                    <Icon name={s.icon} size={14} className={s.text} />{t.category}
+                                  </button>
+                                ) : <span className="text-xs text-on-surface-variant">Uncategorized</span>}
+                              </td>
+                              <td className="px-4 py-3">
+                                {loc ? (
+                                  <button type="button" onClick={() => { setLocation(location === loc ? null : loc); setShowLocation(true) }}
+                                    className="rounded-full px-2 py-0.5 text-xs text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface">{loc}</button>
+                                ) : <span className="text-on-surface-variant/50">—</span>}
+                              </td>
+                              <td className="px-4 py-3">
+                                <button type="button" onClick={() => editTransaction(t)} title="Change how this counts"
+                                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition-opacity hover:opacity-80 ${FLOW_PILL[flowOf(t)]}`}>
+                                  {FLOW_SHORT[flowOf(t)]}{t.flow_override && <Icon name="edit" size={11} />}
+                                </button>
+                              </td>
+                              <td className={`px-6 py-3 text-right font-semibold ${t.amount < 0 ? "text-tertiary" : ""}`}>
+                                <Money value={-t.amount} sign />
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        </>
+      )}
+    </div>
+  )
+}

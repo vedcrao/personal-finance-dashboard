@@ -1,0 +1,373 @@
+import type { Account, Transaction } from "./types"
+
+/* ------------------------------------------------------------------ */
+/* Classification                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Fallback only, for rows categorized before Plaid categories were used:
+ * descriptions that usually mean money moving between your own accounts.
+ */
+export const TRANSFER_KEYWORDS = [
+  "payment", "transfer", "autopay", "credit card", "ach pmt", "des:ach", "online pmt", "bill pay",
+]
+
+export type Flow = "income" | "expense" | "reimbursement" | "transfer"
+
+/**
+ * How a transaction counts. Precedence:
+ *   1. your explicit choice (flow_override)
+ *   2. category "Transfer" → transfer; "Zelle" → income if money in, expense if money out
+ *   3. keyword fallback for transfers
+ *   4. sign: money in = income, money out = expense
+ */
+export function flowOf(t: Transaction): Flow {
+  if (t.flow_override) return t.flow_override
+  if (t.category === "Transfer") return "transfer"
+  if (t.category === "Zelle") return t.amount < 0 ? "income" : "expense"
+  if (t.category !== "Income" && TRANSFER_KEYWORDS.some((k) => t.description.toLowerCase().includes(k))) return "transfer"
+  return t.amount < 0 ? "income" : "expense"
+}
+
+export function isTransfer(t: Transaction): boolean {
+  return flowOf(t) === "transfer"
+}
+
+/** Counts toward spending (positive) or offsets it (reimbursement). */
+export function isSpend(t: Transaction): boolean {
+  const f = flowOf(t)
+  return f === "expense" || f === "reimbursement"
+}
+
+export function isIncome(t: Transaction): boolean {
+  return flowOf(t) === "income"
+}
+
+/**
+ * Contribution to spending totals: expenses add, reimbursements (a friend paying you back)
+ * subtract. Use this instead of t.amount anywhere spending is summed.
+ */
+export function spendAmount(t: Transaction): number {
+  const f = flowOf(t)
+  if (f === "expense") return Math.abs(t.amount)
+  if (f === "reimbursement") return -Math.abs(t.amount)
+  return 0
+}
+
+export function incomeAmount(t: Transaction): number {
+  return flowOf(t) === "income" ? Math.abs(t.amount) : 0
+}
+
+/** Display-level direction (Accounts page filter chips). */
+export type FlowType = "income" | "outflow" | "transfer"
+
+export function flowType(t: Transaction): FlowType {
+  const f = flowOf(t)
+  if (f === "transfer") return "transfer"
+  return t.amount < 0 ? "income" : "outflow"
+}
+
+export const FLOW_LABELS: Record<Flow, string> = {
+  income: "Income",
+  expense: "Expense",
+  reimbursement: "Reimbursement",
+  transfer: "Ignore (transfer)",
+}
+
+export function isInterest(t: Transaction): boolean {
+  const d = `${t.description} ${t.merchant_name ?? ""}`.toLowerCase()
+  return t.amount < 0 && (d.includes("interest") || d.includes("dividend"))
+}
+
+/* ------------------------------------------------------------------ */
+/* Categories                                                          */
+/* ------------------------------------------------------------------ */
+
+export interface CategoryStyle {
+  icon: string
+  /** Tailwind classes */
+  text: string
+  bg: string
+  bar: string
+}
+
+export const CATEGORY_STYLES: Record<string, CategoryStyle> = {
+  "Food & Dining": { icon: "restaurant", text: "text-amber-300", bg: "bg-amber-500/10", bar: "bg-amber-400" },
+  Groceries: { icon: "shopping_cart", text: "text-tertiary", bg: "bg-tertiary/10", bar: "bg-tertiary" },
+  Shopping: { icon: "shopping_bag", text: "text-secondary", bg: "bg-secondary/10", bar: "bg-secondary" },
+  Entertainment: { icon: "theaters", text: "text-fuchsia-300", bg: "bg-fuchsia-500/10", bar: "bg-fuchsia-400" },
+  Travel: { icon: "flight_takeoff", text: "text-sky-300", bg: "bg-sky-500/10", bar: "bg-sky-400" },
+  Transport: { icon: "local_taxi", text: "text-rose-300", bg: "bg-rose-500/10", bar: "bg-rose-400" },
+  Subscriptions: { icon: "autorenew", text: "text-primary", bg: "bg-primary/10", bar: "bg-primary" },
+  Healthcare: { icon: "health_and_safety", text: "text-emerald-300", bg: "bg-emerald-500/10", bar: "bg-emerald-400" },
+  Utilities: { icon: "bolt", text: "text-yellow-300", bg: "bg-yellow-500/10", bar: "bg-yellow-400" },
+  Rent: { icon: "apartment", text: "text-orange-300", bg: "bg-orange-500/10", bar: "bg-orange-400" },
+  Income: { icon: "payments", text: "text-tertiary", bg: "bg-tertiary/10", bar: "bg-tertiary" },
+  Zelle: { icon: "currency_exchange", text: "text-violet-300", bg: "bg-violet-500/15", bar: "bg-violet-400" },
+  "Debt Payments": { icon: "account_balance", text: "text-red-300", bg: "bg-red-500/10", bar: "bg-red-400" },
+  Transfer: { icon: "sync_alt", text: "text-secondary", bg: "bg-secondary/10", bar: "bg-secondary" },
+  Other: { icon: "category", text: "text-on-surface-variant", bg: "bg-surface-container-highest", bar: "bg-outline" },
+  Uncategorized: { icon: "help", text: "text-on-surface-variant", bg: "bg-surface-container-highest", bar: "bg-outline-variant" },
+}
+
+export function categoryStyle(category: string | null): CategoryStyle {
+  return CATEGORY_STYLES[category ?? "Uncategorized"] ?? CATEGORY_STYLES.Other
+}
+
+export interface CategoryTotal {
+  category: string
+  amount: number
+  count: number
+  pct: number
+}
+
+export function categoryBreakdown(txns: Transaction[]): CategoryTotal[] {
+  const spend = txns.filter(isSpend)
+  const total = spend.reduce((s, t) => s + spendAmount(t), 0)
+  const map = new Map<string, { amount: number; count: number }>()
+  for (const t of spend) {
+    const key = t.category ?? "Uncategorized"
+    const cur = map.get(key) ?? { amount: 0, count: 0 }
+    cur.amount += spendAmount(t)
+    cur.count += 1
+    map.set(key, cur)
+  }
+  return [...map.entries()]
+    .filter(([, v]) => v.amount > 0.005)
+    .map(([category, v]) => ({ category, ...v, pct: total > 0 ? (v.amount / total) * 100 : 0 }))
+    .sort((a, b) => b.amount - a.amount)
+}
+
+export function sumSpend(txns: Transaction[]): number {
+  return txns.reduce((s, t) => s + spendAmount(t), 0)
+}
+
+export function sumIncome(txns: Transaction[]): number {
+  return txns.reduce((s, t) => s + incomeAmount(t), 0)
+}
+
+/* ------------------------------------------------------------------ */
+/* Accounts                                                            */
+/* ------------------------------------------------------------------ */
+
+export const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  credit: "Credit Cards",
+  depository: "Bank Accounts",
+  investment: "Investments",
+  loan: "Loans",
+  other: "Other",
+}
+
+export const ACCOUNT_TYPE_ORDER = ["depository", "credit", "investment", "loan", "other"]
+
+export function isLiability(a: Account) {
+  return a.type === "credit" || a.type === "loan"
+}
+
+export function netWorth(accounts: Account[]): number {
+  return accounts.reduce((s, a) => {
+    const bal = a.current_balance ?? 0
+    return isLiability(a) ? s - bal : s + bal
+  }, 0)
+}
+
+export function totalBalance(accounts: Account[]): number {
+  return accounts.reduce((s, a) => s + (a.current_balance ?? 0), 0)
+}
+
+/** Balance to show for a cash account — available if present, else current. */
+export function cashBalance(a: Account): number {
+  return a.available_balance ?? a.current_balance ?? 0
+}
+
+export function utilization(balance: number, limit: number | null): number | null {
+  if (!limit || limit <= 0) return null
+  return (balance / limit) * 100
+}
+
+/* ------------------------------------------------------------------ */
+/* Dates                                                               */
+/* ------------------------------------------------------------------ */
+
+/** Local YYYY-MM-DD (avoids the UTC shift of toISOString). */
+export function ymd(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
+export function parseYmd(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number)
+  return new Date(y, m - 1, d)
+}
+
+export function startOfWeek(d: Date): Date {
+  const r = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const dow = (r.getDay() + 6) % 7 // Monday = 0
+  r.setDate(r.getDate() - dow)
+  return r
+}
+
+export function addDays(d: Date, n: number): Date {
+  const r = new Date(d)
+  r.setDate(r.getDate() + n)
+  return r
+}
+
+export function isoWeekNumber(d: Date): number {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  const dayNum = t.getUTCDay() || 7
+  t.setUTCDate(t.getUTCDate() + 4 - dayNum)
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1))
+  return Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+}
+
+export function daysUntil(dateStr: string): number {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.round((parseYmd(dateStr).getTime() - today.getTime()) / 86400000)
+}
+
+export function inRange(date: string, start: string, end: string) {
+  return date >= start && date <= end
+}
+
+export function currentMonthRange(now = new Date()) {
+  const start = new Date(now.getFullYear(), now.getMonth(), 1)
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  return { start: ymd(start), end: ymd(end) }
+}
+
+export function getRecentMonths(count: number) {
+  const now = new Date()
+  return Array.from({ length: count }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (count - 1 - i), 1)
+    return { label: d.toLocaleDateString("en-US", { month: "long" }), value: ymd(d).slice(0, 7) }
+  })
+}
+
+export function getBillingPeriods(day: number, count = 3) {
+  const now = new Date()
+  return Array.from({ length: count }, (_, i) => {
+    const close = new Date(now.getFullYear(), now.getMonth() - (count - 1 - i), day)
+    const open = new Date(close.getFullYear(), close.getMonth() - 1, day + 1)
+    return {
+      label: close.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+      start: ymd(open),
+      end: ymd(close),
+    }
+  })
+}
+
+/** The open (not yet closed) statement period for a card that closes on `day` each month. */
+export function currentStatementPeriod(day: number, now = new Date()) {
+  const clamp = (y: number, m: number) => new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()))
+  let lastClose = clamp(now.getFullYear(), now.getMonth())
+  if (ymd(lastClose) > ymd(now)) lastClose = clamp(now.getFullYear(), now.getMonth() - 1)
+  return { start: ymd(addDays(lastClose, 1)), end: ymd(now) }
+}
+
+/* ------------------------------------------------------------------ */
+/* Weekly spending                                                     */
+/* ------------------------------------------------------------------ */
+
+export interface DayBucket {
+  date: string
+  label: string // Mon
+  short: string // M
+  total: number
+  txns: Transaction[]
+}
+
+export function weekBuckets(txns: Transaction[], weekStart: Date): DayBucket[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = addDays(weekStart, i)
+    const date = ymd(d)
+    const dayTxns = txns.filter((t) => t.date === date && isSpend(t))
+    const label = d.toLocaleDateString("en-US", { weekday: "short" })
+    return { date, label, short: label[0], total: dayTxns.reduce((s, t) => s + spendAmount(t), 0), txns: dayTxns }
+  })
+}
+
+/* ------------------------------------------------------------------ */
+/* Location                                                            */
+/* ------------------------------------------------------------------ */
+
+export function formatLocation(t: Transaction): string | null {
+  if (t.city && t.region) return `${t.city}, ${t.region}`
+  if (t.city && t.country) return `${t.city}, ${t.country}`
+  if (t.city) return t.city
+  if (t.country && t.country !== "US") return t.country
+  return null
+}
+
+/* ------------------------------------------------------------------ */
+/* Recurring detection                                                 */
+/* ------------------------------------------------------------------ */
+
+export interface RecurringItem {
+  merchant: string
+  avgAmount: number
+  frequency: "Weekly" | "Bi-weekly" | "Monthly" | "Quarterly"
+  monthlyCost: number
+  count: number
+  lastDate: string
+  category: string | null
+  direction: "out" | "in"
+}
+
+/**
+ * Finds merchants that charge (or pay) a consistent amount across multiple months.
+ * direction "out" = subscriptions/bills, "in" = paychecks/recurring deposits.
+ */
+export function detectRecurring(txns: Transaction[], direction: "out" | "in" = "out"): RecurringItem[] {
+  const candidates = txns.filter((t) => (direction === "out" ? flowOf(t) === "expense" : isIncome(t)))
+  const byMerchant = new Map<string, Transaction[]>()
+  for (const t of candidates) {
+    const key = (t.merchant_name || t.description).trim()
+    byMerchant.set(key, [...(byMerchant.get(key) ?? []), t])
+  }
+
+  const results: RecurringItem[] = []
+  for (const [merchant, group] of byMerchant) {
+    if (group.length < 2) continue
+    if (new Set(group.map((t) => t.date.slice(0, 7))).size < 2) continue
+    const sorted = [...group].sort((a, b) => a.date.localeCompare(b.date))
+    const amounts = sorted.map((t) => Math.abs(t.amount))
+    const avg = amounts.reduce((s, a) => s + a, 0) / amounts.length
+    const maxDev = Math.max(...amounts.map((a) => Math.abs(a - avg) / avg))
+    if (maxDev > 0.15) continue
+
+    const intervals = sorted.slice(1).map((t, i) => (parseYmd(t.date).getTime() - parseYmd(sorted[i].date).getTime()) / 86400000)
+    const avgInterval = intervals.reduce((s, d) => s + d, 0) / intervals.length
+
+    let frequency: RecurringItem["frequency"] = "Monthly"
+    let monthlyCost = avg
+    if (avgInterval <= 10) { frequency = "Weekly"; monthlyCost = avg * 4.33 }
+    else if (avgInterval <= 18) { frequency = "Bi-weekly"; monthlyCost = avg * 2.17 }
+    else if (avgInterval > 80) { frequency = "Quarterly"; monthlyCost = avg / 3 }
+
+    results.push({
+      merchant, avgAmount: avg, frequency, monthlyCost, count: group.length,
+      lastDate: sorted[sorted.length - 1].date, category: group[0].category, direction,
+    })
+  }
+  return results.sort((a, b) => b.monthlyCost - a.monthlyCost)
+}
+
+/* ------------------------------------------------------------------ */
+/* Investments                                                         */
+/* ------------------------------------------------------------------ */
+
+export const SECURITY_TYPE_LABELS: Record<string, string> = {
+  equity: "Stocks",
+  etf: "ETFs",
+  "mutual fund": "Mutual Funds",
+  cryptocurrency: "Crypto",
+  "fixed income": "Bonds",
+  cash: "Cash",
+  derivative: "Derivatives",
+  other: "Other",
+}
+
+export const ALLOCATION_COLORS = ["bg-primary-container", "bg-secondary", "bg-tertiary", "bg-amber-400", "bg-rose-400", "bg-sky-400", "bg-outline"]

@@ -1,26 +1,143 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * "Obsidian Glow" design system — generated in Google Stitch
+ * (project: Personal Finance Dashboard). Token names mirror the Stitch export
+ * so Stitch HTML classes (bg-surface-container, text-on-surface-variant, ...) work as-is.
+ */
+@theme {
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-background: #0e1321;
+  --color-on-background: #dee2f6;
+  --color-canvas: #0a0f1d;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --color-surface: #0e1321;
+  --color-surface-dim: #0e1321;
+  --color-surface-bright: #343948;
+  --color-surface-container-lowest: #090e1c;
+  --color-surface-container-low: #161b2a;
+  --color-surface-container: #1a1f2e;
+  --color-surface-container-high: #252a39;
+  --color-surface-container-highest: #303444;
+  --color-surface-variant: #303444;
+  --color-on-surface: #dee2f6;
+  --color-on-surface-variant: #c7c4d7;
+  --color-inverse-surface: #dee2f6;
+  --color-inverse-on-surface: #2b303f;
+  --color-outline: #908fa0;
+  --color-outline-variant: #464554;
+
+  --color-primary: #c0c1ff;
+  --color-on-primary: #1000a9;
+  --color-primary-container: #8083ff;
+  --color-on-primary-container: #0d0096;
+  --color-inverse-primary: #494bd6;
+  --color-primary-fixed: #e1e0ff;
+  --color-primary-fixed-dim: #c0c1ff;
+  --color-indigo-brand: #6366f1;
+
+  --color-secondary: #4cd7f6;
+  --color-on-secondary: #003640;
+  --color-secondary-container: #03b5d3;
+  --color-on-secondary-container: #00424e;
+  --color-secondary-fixed: #acedff;
+
+  --color-tertiary: #4edea3;
+  --color-on-tertiary: #003824;
+  --color-tertiary-container: #00885d;
+  --color-on-tertiary-container: #000703;
+  --color-tertiary-fixed: #6ffbbe;
+
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+
+  --animate-fade-in: fade-in 160ms ease-out;
+  --animate-pop-in: pop-in 180ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pop-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.98); }
+    to { opacity: 1; transform: none; }
   }
 }
 
+/* Level 1 frosted glass card */
+@utility glass {
+  background-color: rgb(26 31 46 / 0.7);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgb(255 255 255 / 0.06);
+}
+
+/* Level 2 floating surfaces (modals, popovers) */
+@utility glass-raised {
+  background-color: rgb(26 34 53 / 0.92);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.1), 0 24px 48px -12px rgb(0 0 0 / 0.6);
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility glow-tertiary {
+  box-shadow: 0 0 20px -4px rgb(78 222 163 / 0.35);
+}
+@utility glow-secondary {
+  box-shadow: 0 0 14px rgb(76 215 246 / 0.5);
+}
+@utility glow-primary {
+  box-shadow: 0 4px 20px -2px rgb(128 131 255 / 0.4);
+}
+
+html {
+  color-scheme: dark;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-canvas);
+  color: var(--color-on-surface);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+}
+
+/* Material Symbols (icon font loaded in app/layout.tsx) */
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  user-select: none;
+}
+.material-symbols-outlined.filled {
+  font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+/* Quiet scrollbars on the dark canvas */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-surface-container-highest) transparent;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import { plaidClient } from "@/lib/plaid"
+import { CountryCode } from "plaid"
 import { supabaseAdmin } from "@/lib/supabase-server"
-
-const TEST_USER_ID = "0f64105d-5a67-4f2b-b8c9-dd2bdb0c4abc"
+import { TEST_USER_ID } from "@/lib/user"
 
 export async function POST(request: Request) {
   try {
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     if (institutionId) {
       const instResponse = await plaidClient.institutionsGetById({
         institution_id: institutionId,
-        country_codes: ["US"] as any,
+        country_codes: [CountryCode.Us],
       })
       institutionName = instResponse.data.institution.name
     }
@@ -60,8 +60,9 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true, institution: institutionName })
-  } catch (err: any) {
-    console.error("Exchange token error:", err?.message ?? err)
-    return NextResponse.json({ error: err?.message ?? "Unknown error" }, { status: 500 })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error"
+    console.error("Exchange token error:", message)
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
