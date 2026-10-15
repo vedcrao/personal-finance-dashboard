@@ -1,8 +1,9 @@
 import type { RemovedTransaction, Transaction as PlaidTransaction } from "plaid"
-import { plaidClient } from "./plaid"
+import { getPlaidClient } from "./plaid"
+import type { PlaidApi } from "plaid"
 import { supabaseAdmin } from "./supabase-server"
-import { TEST_USER_ID } from "./user"
 import { isMissingSchema } from "./db-errors"
+import { markInternalTransfers } from "./transfers"
 import { categorize, type CategorizeInput, type Rule } from "./categorize"
 
 export const AUTOMATION_MIGRATION_HINT =
@@ -34,8 +35,8 @@ function plaidErrorCode(e: unknown): string | undefined {
 export const RULES_MIGRATION_HINT =
   "Run supabase/migrations/20261016_rules_v2.sql in the Supabase SQL editor to enable smart rules."
 
-export async function loadRules(): Promise<Rule[]> {
-  const { data, error } = await supabaseAdmin.from("categorization_rules").select("*").eq("user_id", TEST_USER_ID)
+export async function loadRules(userId: string): Promise<Rule[]> {
+  const { data, error } = await supabaseAdmin.from("categorization_rules").select("*").eq("user_id", userId)
   if (isMissingSchema(error)) throw new Error(AUTOMATION_MIGRATION_HINT)
   if (error) throw new Error(error.message)
   return (data ?? []) as Rule[]
@@ -57,6 +58,7 @@ export interface CategorizeProgress {
  *                          `since` back on each follow-up call to continue the same run
  */
 export async function applyCategorization(
+  userId: string,
   mode: "uncategorized" | "all" = "uncategorized",
   opts: { since?: string; budgetMs?: number; chunk?: number } = {}
 ): Promise<CategorizeProgress> {
@@ -64,13 +66,13 @@ export async function applyCategorization(
   const budget = opts.budgetMs ?? 40_000
   const chunk = opts.chunk ?? 200
   const started = Date.now()
-  const rules = await loadRules()
+  const rules = await loadRules(userId)
 
   const pending = (select: string, head = false) => {
     let q = supabaseAdmin
       .from("transactions")
       .select(select, head ? { count: "exact", head: true } : undefined)
-      .eq("user_id", TEST_USER_ID)
+      .eq("user_id", userId)
     if (mode === "uncategorized") q = q.is("category", null)
     // (not hand-edited) AND (not yet processed in this run)
     else q = q.or(`and(or(category_source.is.null,category_source.neq.user),or(categorized_at.is.null,categorized_at.lt."${since}"))`)
@@ -104,6 +106,9 @@ export async function applyCategorization(
   }
 
   const { count } = await pending("id", true)
+  // After the last chunk, pair up money moved between your own accounts (savings → checking,
+  // card autopays) so it isn't counted as spending + income
+  if ((count ?? 0) === 0) await markInternalTransfers(userId)
   return { categorized, llmUsed, remaining: count ?? 0, since }
 }
 
@@ -111,14 +116,14 @@ export async function applyCategorization(
 /* Sync                                                                */
 /* ------------------------------------------------------------------ */
 
-async function accountMap(): Promise<Map<string, string>> {
-  const { data } = await supabaseAdmin.from("accounts").select("id, plaid_account_id").eq("user_id", TEST_USER_ID)
+async function accountMap(userId: string): Promise<Map<string, string>> {
+  const { data } = await supabaseAdmin.from("accounts").select("id, plaid_account_id").eq("user_id", userId)
   return new Map(data?.map((a) => [a.plaid_account_id, a.id]) ?? [])
 }
 
-function toRow(t: PlaidTransaction, accountId: string) {
+function toRow(t: PlaidTransaction, accountId: string, userId: string) {
   return {
-    user_id: TEST_USER_ID,
+    user_id: userId,
     account_id: accountId,
     plaid_transaction_id: t.transaction_id,
     amount: t.amount,
@@ -134,7 +139,7 @@ function toRow(t: PlaidTransaction, accountId: string) {
 }
 
 /** Pull every change since the stored cursor for one Item. */
-export async function syncItem(item: ItemRow): Promise<ItemSyncResult> {
+export async function syncItem(userId: string, plaid: PlaidApi, item: ItemRow): Promise<ItemSyncResult> {
   const result: ItemSyncResult = { institution: item.institution_name, added: 0, modified: 0, removed: 0 }
 
   let added: PlaidTransaction[] = []
@@ -151,7 +156,7 @@ export async function syncItem(item: ItemRow): Promise<ItemSyncResult> {
         cursor = item.transactions_cursor ?? undefined
         let hasMore = true
         while (hasMore) {
-          const r = await plaidClient.transactionsSync({ access_token: item.plaid_access_token, cursor, count: 500 })
+          const r = await plaid.transactionsSync({ access_token: item.plaid_access_token, cursor, count: 500 })
           added.push(...r.data.added)
           modified.push(...r.data.modified)
           removed.push(...r.data.removed)
@@ -175,15 +180,15 @@ export async function syncItem(item: ItemRow): Promise<ItemSyncResult> {
   if (accounts.length) {
     await supabaseAdmin.from("accounts").upsert(
       accounts.map((a) => ({
-        user_id: TEST_USER_ID, plaid_account_id: a.account_id, plaid_item_id: item.plaid_item_id,
+        user_id: userId, plaid_account_id: a.account_id, plaid_item_id: item.plaid_item_id,
         name: a.name, type: a.type, subtype: a.subtype ?? null, mask: a.mask ?? null,
       })),
       { onConflict: "plaid_account_id", ignoreDuplicates: true }
     )
   }
-  const accMap = await accountMap()
+  const accMap = await accountMap(userId)
 
-  const upserts = [...added, ...modified].filter((t) => accMap.has(t.account_id)).map((t) => toRow(t, accMap.get(t.account_id)!))
+  const upserts = [...added, ...modified].filter((t) => accMap.has(t.account_id)).map((t) => toRow(t, accMap.get(t.account_id)!, userId))
   for (let i = 0; i < upserts.length; i += 500) {
     const { error } = await supabaseAdmin.from("transactions").upsert(upserts.slice(i, i + 500), { onConflict: "plaid_transaction_id" })
     if (error) return { ...result, error: error.message }
@@ -199,7 +204,7 @@ export async function syncItem(item: ItemRow): Promise<ItemSyncResult> {
 
   // Statement closing day from Liabilities (credit cards), when available
   try {
-    const liab = await plaidClient.liabilitiesGet({ access_token: item.plaid_access_token })
+    const liab = await plaid.liabilitiesGet({ access_token: item.plaid_access_token })
     for (const card of liab.data.liabilities.credit ?? []) {
       const id = card.account_id ? accMap.get(card.account_id) : undefined
       if (!id || !card.last_statement_issue_date) continue
@@ -212,11 +217,11 @@ export async function syncItem(item: ItemRow): Promise<ItemSyncResult> {
   return { ...result, added: added.length, modified: modified.length, removed: removedIds.length }
 }
 
-async function loadItems(itemId?: string): Promise<ItemRow[]> {
+async function loadItems(userId: string, itemId?: string): Promise<ItemRow[]> {
   let q = supabaseAdmin
     .from("plaid_items")
     .select("plaid_access_token, plaid_item_id, institution_name, transactions_cursor")
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
   if (itemId) q = q.eq("plaid_item_id", itemId)
   const { data, error } = await q
   if (isMissingSchema(error)) throw new Error(AUTOMATION_MIGRATION_HINT)
@@ -225,11 +230,12 @@ async function loadItems(itemId?: string): Promise<ItemRow[]> {
 }
 
 /** Sync one Item (webhook) or all Items (button / cron), then categorize what's new. */
-export async function syncAndCategorize(itemId?: string, opts: { budgetMs?: number } = {}) {
-  const items = await loadItems(itemId)
+export async function syncAndCategorize(userId: string, itemId?: string, opts: { budgetMs?: number } = {}) {
+  const items = await loadItems(userId, itemId)
+  const plaid = await getPlaidClient(userId)
   const results: ItemSyncResult[] = []
-  for (const item of items) results.push(await syncItem(item))
-  const cat = await applyCategorization("uncategorized", { budgetMs: opts.budgetMs ?? 25_000 })
+  for (const item of items) results.push(await syncItem(userId, plaid, item))
+  const cat = await applyCategorization(userId, "uncategorized", { budgetMs: opts.budgetMs ?? 25_000 })
   return {
     items: results,
     synced: results.reduce((s, r) => s + r.added + r.modified, 0),

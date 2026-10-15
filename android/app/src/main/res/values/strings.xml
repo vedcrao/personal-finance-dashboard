@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vertice</string>
+    <string name="title_activity_main">Vertice</string>
+    <string name="package_name">com.vedcrao.vertice</string>
+    <string name="custom_url_scheme">com.vedcrao.vertice</string>
+</resources>

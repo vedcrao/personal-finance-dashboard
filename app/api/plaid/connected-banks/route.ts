@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
+import { requirePlaid, requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { plaidClient } from "@/lib/plaid"
-import { TEST_USER_ID } from "@/lib/user"
 import { isMissingSchema } from "@/lib/db-errors"
 
 /** Connected institutions + sync health + which extra permissions each one is missing. */
@@ -14,23 +13,29 @@ interface ItemRow {
   status_detail?: string | null
 }
 
-async function loadItems(columns: string) {
+async function loadItems(userId: string, columns: string) {
   return supabaseAdmin
     .from("plaid_items")
     .select(columns)
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .order("created_at", { ascending: true })
     .returns<ItemRow[]>()
 }
 
 export async function GET() {
-  let res = await loadItems("institution_name, plaid_item_id, plaid_access_token, last_synced_at, status, status_detail")
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+  const plaidClient = await requirePlaid(userId)
+  if (plaidClient instanceof NextResponse) return plaidClient
+
+  let res = await loadItems(userId, "institution_name, plaid_item_id, plaid_access_token, last_synced_at, status, status_detail")
   // Automation migration not run yet
-  if (isMissingSchema(res.error)) res = await loadItems("institution_name, plaid_item_id, plaid_access_token")
+  if (isMissingSchema(res.error)) res = await loadItems(userId, "institution_name, plaid_item_id, plaid_access_token")
   const { data, error } = res
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const { data: accounts } = await supabaseAdmin.from("accounts").select("plaid_item_id, type").eq("user_id", TEST_USER_ID)
+  const { data: accounts } = await supabaseAdmin.from("accounts").select("plaid_item_id, type").eq("user_id", userId)
 
   const banks = await Promise.all(
     (data ?? []).map(async (b) => {

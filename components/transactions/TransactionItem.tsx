@@ -33,7 +33,7 @@ export function TransactionItem({ t, account, showAccount }: Props) {
       type="button"
       onClick={() => editTransaction(t)}
       title="Edit category / how it counts"
-      className="flex w-full items-center justify-between gap-4 px-6 py-3.5 text-left transition-colors hover:bg-surface-container-high/40"
+      className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left md:px-6 transition-colors hover:bg-surface-container-high/40"
     >
       <div className="flex min-w-0 items-center gap-4">
         <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${iconClasses}`}>

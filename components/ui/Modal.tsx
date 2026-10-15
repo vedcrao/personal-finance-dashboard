@@ -28,7 +28,7 @@ export function Modal({ open, onClose, title, icon, children, footer, width = "m
 
   return (
     <div
-      className="fixed inset-0 z-50 flex animate-fade-in items-center justify-center bg-black/70 p-6 backdrop-blur-md"
+      className="fixed inset-0 z-[60] flex animate-fade-in items-end justify-center bg-black/70 backdrop-blur-md md:items-center md:p-6"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
@@ -37,7 +37,7 @@ export function Modal({ open, onClose, title, icon, children, footer, width = "m
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className={`glass-raised w-full ${width} animate-pop-in rounded-2xl p-6 outline-none`}
+        className={`glass-raised max-h-[92vh] w-full ${width} animate-pop-in overflow-y-auto rounded-t-3xl p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] outline-none md:rounded-2xl md:p-6`}
       >
         <div className="mb-5 flex items-center justify-between border-b border-white/5 pb-3">
           <div className="flex items-center gap-2">

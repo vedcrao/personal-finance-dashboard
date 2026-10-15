@@ -1,5 +1,4 @@
 import { supabaseAdmin } from "./supabase-server"
-import { TEST_USER_ID } from "./user"
 import { isMissingSchema } from "./db-errors"
 import { normalizeCategory, normalizeText, ruleMatches, type CategorizationRule, type Direction, type FlowChoice } from "./rules"
 
@@ -38,7 +37,7 @@ export function parseRuleInput(body: Record<string, unknown>): Omit<Categorizati
 }
 
 /** Transactions a rule would affect (excludes ones you edited by hand unless includeUserEdited). */
-export async function previewRule(rule: CategorizationRule, includeUserEdited = false): Promise<MatchedTxn[]> {
+export async function previewRule(userId: string, rule: CategorizationRule, includeUserEdited = false): Promise<MatchedTxn[]> {
   // Loose DB prefilter (each word, anything between — catches "Zelle® payment"), exact check in JS.
   // Double-quoted so commas / parentheses don't break the PostgREST filter.
   const words = normalizeText(rule.match).replace(/["\\%_*]/g, "").split(" ").filter(Boolean)
@@ -46,7 +45,7 @@ export async function previewRule(rule: CategorizationRule, includeUserEdited = 
   const { data, error } = await supabaseAdmin
     .from("transactions")
     .select("id, date, amount, description, merchant_name, category, category_source")
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .or(`description.ilike.${pattern},merchant_name.ilike.${pattern}`)
     .order("date", { ascending: false })
     .limit(2000)
@@ -57,25 +56,25 @@ export async function previewRule(rule: CategorizationRule, includeUserEdited = 
 }
 
 /** Apply a rule to existing transactions right away. Returns how many changed. */
-export async function applyRuleToExisting(rule: CategorizationRule): Promise<number> {
-  const matches = await previewRule(rule)
+export async function applyRuleToExisting(userId: string, rule: CategorizationRule): Promise<number> {
+  const matches = await previewRule(userId, rule)
   const update: Record<string, string | null> = { category_source: "rule", categorized_at: new Date().toISOString() }
   if (rule.category) update.category = rule.category
   update.flow_override = rule.flow_override
   for (let i = 0; i < matches.length; i += 100) {
     const ids = matches.slice(i, i + 100).map((m) => m.id)
-    const { error } = await supabaseAdmin.from("transactions").update(update).in("id", ids)
+    const { error } = await supabaseAdmin.from("transactions").update(update).eq("user_id", userId).in("id", ids)
     if (isMissingSchema(error)) throw new Error(RULES_V2_HINT)
     if (error) throw new Error(error.message)
   }
   return matches.length
 }
 
-export async function listRules(): Promise<CategorizationRule[]> {
+export async function listRules(userId: string): Promise<CategorizationRule[]> {
   const { data, error } = await supabaseAdmin
     .from("categorization_rules")
     .select("*")
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .order("created_at", { ascending: true })
   if (error) throw new Error(error.message)
   return (data ?? []).map((r) => ({
@@ -85,29 +84,29 @@ export async function listRules(): Promise<CategorizationRule[]> {
   })) as CategorizationRule[]
 }
 
-export async function createRule(input: Omit<CategorizationRule, "id">, source: "editor" | "assistant" | "manual") {
+export async function createRule(userId: string, input: Omit<CategorizationRule, "id">, source: "editor" | "assistant" | "manual") {
   const { data, error } = await supabaseAdmin
     .from("categorization_rules")
-    .insert({ ...input, user_id: TEST_USER_ID, source })
+    .insert({ ...input, user_id: userId, source })
     .select("*")
     .single()
   if (isMissingSchema(error)) throw new Error(RULES_V2_HINT)
   if (error) throw new Error(error.message)
-  const applied = await applyRuleToExisting(data as CategorizationRule)
+  const applied = await applyRuleToExisting(userId, data as CategorizationRule)
   return { rule: data as CategorizationRule, applied }
 }
 
-export async function updateRule(id: string, input: Omit<CategorizationRule, "id">) {
+export async function updateRule(userId: string, id: string, input: Omit<CategorizationRule, "id">) {
   const { data, error } = await supabaseAdmin
     .from("categorization_rules")
     .update({ ...input, updated_at: new Date().toISOString() })
     .eq("id", id)
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .select("*")
     .single()
   if (isMissingSchema(error)) throw new Error(RULES_V2_HINT)
   if (error || !data) throw new Error(error?.message ?? "Rule not found")
-  const applied = await applyRuleToExisting(data as CategorizationRule)
+  const applied = await applyRuleToExisting(userId, data as CategorizationRule)
   return { rule: data as CategorizationRule, applied }
 }
 
@@ -115,16 +114,17 @@ export async function updateRule(id: string, input: Omit<CategorizationRule, "id
  * Deletes a rule. Transactions it had set (category_source = 'rule') are cleared
  * so the next categorization pass re-decides them.
  */
-export async function deleteRule(id: string) {
-  const { data: rule } = await supabaseAdmin.from("categorization_rules").select("*").eq("id", id).eq("user_id", TEST_USER_ID).single()
+export async function deleteRule(userId: string, id: string) {
+  const { data: rule } = await supabaseAdmin.from("categorization_rules").select("*").eq("id", id).eq("user_id", userId).single()
   if (!rule) throw new Error("Rule not found")
-  const affected = (await previewRule(rule as CategorizationRule)).filter((t) => t.category_source === "rule")
-  const { error } = await supabaseAdmin.from("categorization_rules").delete().eq("id", id).eq("user_id", TEST_USER_ID)
+  const affected = (await previewRule(userId, rule as CategorizationRule)).filter((t) => t.category_source === "rule")
+  const { error } = await supabaseAdmin.from("categorization_rules").delete().eq("id", id).eq("user_id", userId)
   if (error) throw new Error(error.message)
   for (let i = 0; i < affected.length; i += 100) {
     await supabaseAdmin
       .from("transactions")
       .update({ category: null, flow_override: null, category_source: null, categorized_at: null })
+      .eq("user_id", userId)
       .in("id", affected.slice(i, i + 100).map((t) => t.id))
   }
   return { reset: affected.length }

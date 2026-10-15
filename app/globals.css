@@ -141,3 +141,15 @@ input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
+
+/* ---------- Phone / native app ---------- */
+/* Grid/flex children default to min-width:auto and refuse to shrink below their content
+   (month pills, long badges), which makes phones zoom out. Let them shrink. */
+.grid > *, main .flex > * { min-width: 0; }
+/* iOS zooms into inputs smaller than 16px; keep them at 16px on phones */
+@media (max-width: 767px) {
+  input, select, textarea { font-size: 16px !important; }
+}
+html { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+/* Inside the Capacitor app: feel native (no long-press callouts on UI chrome) */
+html.native nav, html.native header, html.native button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }

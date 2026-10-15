@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
+import { requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { TEST_USER_ID } from "@/lib/user"
 import { isMissingSchema } from "@/lib/db-errors"
 import { ruleKeyFor } from "@/lib/categories"
 import { normalizeCategory, type FlowChoice } from "@/lib/rules"
@@ -15,6 +15,10 @@ const FLOWS: FlowChoice[] = ["income", "expense", "reimbursement", "transfer"]
  * Categories can be custom (e.g. "Gym").
  */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+
   const { id } = await params
   const body = await request.json().catch(() => ({}))
 
@@ -35,7 +39,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from("transactions")
     .update(updates)
     .eq("id", id)
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .select("id, description, merchant_name, category, flow_override")
     .single()
 
@@ -50,8 +54,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   try {
     const input = { match, category: txn.category, flow_override: txn.flow_override as FlowChoice | null, min_amount: null, max_amount: null, direction: null, name: null }
     // Reuse an existing plain (no amount conditions) rule for the same text instead of duplicating
-    const existing = (await listRules()).find((r) => r.match === match && r.min_amount == null && r.max_amount == null && !r.direction)
-    const { applied } = existing?.id ? await updateRule(existing.id, input) : await createRule(input, "editor")
+    const existing = (await listRules(userId)).find((r) => r.match === match && r.min_amount == null && r.max_amount == null && !r.direction)
+    const { applied } = existing?.id ? await updateRule(userId, existing.id, input) : await createRule(userId, input, "editor")
     return NextResponse.json({ transaction: txn, rule: match, applied })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't save rule" }, { status: 500 })

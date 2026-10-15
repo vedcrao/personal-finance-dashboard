@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server"
+import { requireUser } from "@/lib/auth"
+import { isOwner } from "@/lib/user"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { TEST_USER_ID } from "@/lib/user"
 import { groq } from "@/lib/groq"
 import twilio from "twilio"
 import { flowOf, sumSpend } from "@/lib/finance"
 import type { Transaction } from "@/lib/types"
 
 export async function POST() {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+  // Twilio sends to one configured phone number, so only the site owner can use it
+  if (!isOwner(auth.email)) {
+    return NextResponse.json({ error: "SMS digest is only set up for the site owner's phone number." }, { status: 403 })
+  }
+
   try {
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
@@ -15,7 +24,7 @@ export async function POST() {
     const { data: transactions, error } = await supabaseAdmin
       .from("transactions")
       .select("*")
-      .eq("user_id", TEST_USER_ID)
+      .eq("user_id", userId)
       .gte("date", startDate)
       .order("date", { ascending: false })
 

@@ -20,7 +20,7 @@ const FLOW_OPTIONS: { value: Flow; label: string; hint: string; icon: string; cl
   { value: "transfer", label: "Ignore", hint: "Moving your own money. Not counted", icon: "sync_alt", cls: "text-on-surface-variant" },
 ]
 
-const SOURCE_LABEL: Record<string, string> = { plaid: "Plaid", llm: "AI", rule: "your rule", user: "you" }
+const SOURCE_LABEL: Record<string, string> = { plaid: "Plaid", llm: "AI", rule: "your rule", user: "you", transfer_match: "matching transfer between your accounts" }
 
 /** Rendered once in the app layout; opened via useFinance().editTransaction(t). */
 export function TransactionEditorHost() {

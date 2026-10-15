@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server"
+import { requirePlaid, requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { plaidClient } from "@/lib/plaid"
-import { TEST_USER_ID } from "@/lib/user"
 import type { CreditLiability } from "@/lib/types"
 
 /** Credit card statement / payment details from Plaid Liabilities, keyed to our account ids. */
 export async function GET() {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+  const plaidClient = await requirePlaid(userId)
+  if (plaidClient instanceof NextResponse) return plaidClient
+
   const [{ data: items, error }, { data: accounts }] = await Promise.all([
-    supabaseAdmin.from("plaid_items").select("plaid_access_token, institution_name").eq("user_id", TEST_USER_ID),
-    supabaseAdmin.from("accounts").select("id, plaid_account_id").eq("user_id", TEST_USER_ID),
+    supabaseAdmin.from("plaid_items").select("plaid_access_token, institution_name").eq("user_id", userId),
+    supabaseAdmin.from("accounts").select("id, plaid_account_id").eq("user_id", userId),
   ])
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

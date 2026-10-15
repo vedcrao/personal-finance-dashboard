@@ -69,7 +69,7 @@ export function PerformancePanel({ value, costBasis, holdingsValueWithBasis, acc
             <span className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">Live portfolio</span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <Money value={value} splitCents className="text-[40px] leading-[48px] font-bold tracking-[-0.03em]" />
+            <Money value={value} splitCents className="text-[32px] leading-10 md:text-[40px] md:leading-[48px] font-bold tracking-[-0.03em]" />
             <span className="text-xs font-semibold uppercase text-on-surface-variant">USD</span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-3">

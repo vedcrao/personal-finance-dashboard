@@ -33,7 +33,7 @@ function ago(iso: string | null) {
 
 export function ConnectionsPanel() {
   const { data, loading, reload } = useApi<{ banks: Bank[] }>("/api/plaid/connected-banks")
-  const { notify, refresh } = useFinance()
+  const { notify, refresh, closedAccounts } = useFinance()
   const [registering, setRegistering] = useState(false)
   const banks = data?.banks ?? []
   const withWebhook = banks.filter((b) => b.webhook).length
@@ -107,6 +107,22 @@ export function ConnectionsPanel() {
             </li>
           ))}
         </ul>
+      )}
+      {closedAccounts.length > 0 && (
+        <div className="border-t border-white/5 px-6 py-4">
+          <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
+            <Icon name="inventory_2" size={14} /> Closed accounts (hidden)
+          </p>
+          <ul className="flex flex-col gap-1">
+            {closedAccounts.map((a) => (
+              <li key={a.id} className="flex items-center justify-between text-xs text-on-surface-variant">
+                <span>{a.institution_name} · {a.name}{a.mask ? ` ••${a.mask}` : ""}</span>
+                <span>No longer reported by the bank</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] text-on-surface-variant">Their past transactions are kept; they&apos;re just left out of balances and net worth.</p>
+        </div>
       )}
     </Panel>
   )

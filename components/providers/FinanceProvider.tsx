@@ -34,8 +34,17 @@ function setPrivacy(hidden: boolean) {
 type ToastTone = "success" | "error" | "info"
 interface Toast { id: number; message: string; tone: ToastTone }
 
+export interface ClosedAccount { id: string; name: string; type: string; subtype: string | null; mask: string | null; institution_name: string }
+
+export interface Me { username: string | null; email: string; owner: boolean }
+
 interface FinanceContextValue {
+  /** Signed-in user */
+  me: Me | null
+  signOut: () => Promise<void>
   accounts: Account[]
+  /** Accounts the bank no longer reports (closed / matured). Hidden everywhere else. */
+  closedAccounts: ClosedAccount[]
   transactions: Transaction[]
   liabilities: CreditLiability[]
   loading: boolean
@@ -84,7 +93,9 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function FinanceProvider({ children }: { children: ReactNode }) {
+  const [me, setMe] = useState<Me | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [closedAccounts, setClosedAccounts] = useState<ClosedAccount[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [liabilities, setLiabilities] = useState<CreditLiability[]>([])
   const [loading, setLoading] = useState(true)
@@ -106,12 +117,15 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
   const load = useCallback(async () => {
     try {
-      const [a, t, l] = await Promise.all([
-        getJson<{ accounts: Account[] }>("/api/accounts"),
+      const [a, t, l, who] = await Promise.all([
+        getJson<{ accounts: Account[]; closed_accounts?: ClosedAccount[] }>("/api/accounts"),
         getJson<{ transactions: Transaction[] }>("/api/transactions"),
         getJson<{ credit: CreditLiability[] }>("/api/liabilities").catch(() => ({ credit: [] })),
+        getJson<Me>("/api/auth/me").catch(() => null),
       ])
+      setMe(who)
       setAccounts(a.accounts ?? [])
+      setClosedAccounts(a.closed_accounts ?? [])
       setTransactions(t.transactions ?? [])
       setLiabilities(l.credit ?? [])
       setError(null)
@@ -224,15 +238,21 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     }
   }, [notify])
 
+  const signOut = useCallback(async () => {
+    await fetch("/api/auth/logout", { method: "POST" })
+    window.location.href = "/login"
+  }, [])
+
   const value = useMemo<FinanceContextValue>(
     () => ({
-      accounts, transactions, liabilities, loading, error, lastUpdated,
+      me, signOut,
+      accounts, closedAccounts, transactions, liabilities, loading, error, lastUpdated,
       hasData: accounts.length > 0,
       refresh, syncAndCategorize, syncing, recategorizeAll, sendDigest, sendingDigest,
       hidden, toggleHidden: () => setPrivacy(!hidden), notify,
       updateTransaction, editing, editTransaction: setEditing,
     }),
-    [accounts, transactions, liabilities, loading, error, lastUpdated, refresh, syncAndCategorize, syncing, recategorizeAll, sendDigest, sendingDigest, hidden, notify, updateTransaction, editing]
+    [me, signOut, accounts, closedAccounts, transactions, liabilities, loading, error, lastUpdated, refresh, syncAndCategorize, syncing, recategorizeAll, sendDigest, sendingDigest, hidden, notify, updateTransaction, editing]
   )
 
   return (

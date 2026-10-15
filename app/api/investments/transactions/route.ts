@@ -1,19 +1,24 @@
 import { NextResponse } from "next/server"
-import { plaidClient } from "@/lib/plaid"
+import { requirePlaid, requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { TEST_USER_ID } from "@/lib/user"
 import { ymd, addDays } from "@/lib/finance"
 import type { InvestmentActivity } from "@/lib/types"
 
 /** Buys, sells, dividends, contributions from Plaid Investments (read live, up to 24 months back). */
 export async function GET(request: Request) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+  const plaidClient = await requirePlaid(userId)
+  if (plaidClient instanceof NextResponse) return plaidClient
+
   const days = Math.min(730, Math.max(7, Number(new URL(request.url).searchParams.get("days") ?? 90)))
   const start = ymd(addDays(new Date(), -days))
   const end = ymd(new Date())
 
   const [{ data: items }, { data: accounts }] = await Promise.all([
-    supabaseAdmin.from("plaid_items").select("plaid_access_token, plaid_item_id, institution_name").eq("user_id", TEST_USER_ID),
-    supabaseAdmin.from("accounts").select("id, plaid_account_id, plaid_item_id, type").eq("user_id", TEST_USER_ID),
+    supabaseAdmin.from("plaid_items").select("plaid_access_token, plaid_item_id, institution_name").eq("user_id", userId),
+    supabaseAdmin.from("accounts").select("id, plaid_account_id, plaid_item_id, type").eq("user_id", userId),
   ])
   const accMap = new Map(accounts?.map((a) => [a.plaid_account_id, a.id]) ?? [])
   const investItems = new Set(accounts?.filter((a) => a.type === "investment").map((a) => a.plaid_item_id))

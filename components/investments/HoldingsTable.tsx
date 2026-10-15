@@ -41,7 +41,13 @@ function GainCell({ gain, pct }: { gain: number | null; pct: number | null }) {
   )
 }
 
-export function HoldingsTable({ rows, needsConsent }: { rows: HoldingRow[]; needsConsent: boolean }) {
+export function HoldingsTable({ rows, needsConsent, filterLabel, onClearFilter }: {
+  rows: HoldingRow[]
+  needsConsent: boolean
+  /** Active allocation filter (e.g. "ETFs"), shown as a removable chip */
+  filterLabel?: string | null
+  onClearFilter?: () => void
+}) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "value", dir: -1 })
   const [group, setGroup] = useState<"account" | "all">("account")
   const total = rows.reduce((s, r) => s + r.value, 0)
@@ -86,7 +92,13 @@ export function HoldingsTable({ rows, needsConsent }: { rows: HoldingRow[]; need
 
   return (
     <Panel
-      title={<div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Holdings</h2><Badge>{rows.length} positions</Badge>{asOf && <span className="text-[11px] text-on-surface-variant">prices as of {shortDate(asOf.slice(0, 10))}</span>}</div>}
+      title={<div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold">Holdings</h2><Badge>{rows.length} positions</Badge>
+        {filterLabel && (
+          <button type="button" onClick={onClearFilter} aria-label={`Clear ${filterLabel} filter`}
+            className="inline-flex items-center gap-1 rounded-full bg-indigo-brand/15 px-2.5 py-0.5 text-xs font-semibold text-primary">
+            <Icon name="filter_alt" size={13} /> {filterLabel} <Icon name="close" size={13} />
+          </button>
+        )}{asOf && <span className="text-[11px] text-on-surface-variant">prices as of {shortDate(asOf.slice(0, 10))}</span>}</div>}
       icon="stacked_line_chart"
       iconClass="text-tertiary"
       padded={false}

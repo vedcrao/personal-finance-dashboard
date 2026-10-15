@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, timingSafeEqual, verify, type KeyObject } from "node:crypto"
-import { plaidClient } from "./plaid"
+import type { PlaidApi } from "plaid"
 
 /**
  * Verifies the `Plaid-Verification` header (ES256 JWT) per
@@ -10,7 +10,7 @@ const keyCache = new Map<string, KeyObject>()
 
 const b64url = (s: string) => Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64")
 
-async function getKey(kid: string): Promise<KeyObject> {
+async function getKey(plaidClient: PlaidApi, kid: string): Promise<KeyObject> {
   const cached = keyCache.get(kid)
   if (cached) return cached
   const res = await plaidClient.webhookVerificationKeyGet({ key_id: kid })
@@ -21,7 +21,8 @@ async function getKey(kid: string): Promise<KeyObject> {
   return key
 }
 
-export async function verifyPlaidWebhook(rawBody: string, token: string | null): Promise<boolean> {
+/** plaidClient = the client of the Plaid account that owns the Item (each user has their own keys). */
+export async function verifyPlaidWebhook(plaidClient: PlaidApi, rawBody: string, token: string | null): Promise<boolean> {
   if (!token) return false
   const parts = token.split(".")
   if (parts.length !== 3) return false
@@ -31,7 +32,7 @@ export async function verifyPlaidWebhook(rawBody: string, token: string | null):
     const header = JSON.parse(b64url(h).toString("utf8"))
     if (header.alg !== "ES256" || typeof header.kid !== "string") return false
 
-    const key = await getKey(header.kid)
+    const key = await getKey(plaidClient, header.kid)
     const ok = verify("sha256", Buffer.from(`${h}.${p}`), { key, dsaEncoding: "ieee-p1363" }, b64url(s))
     if (!ok) return false
 

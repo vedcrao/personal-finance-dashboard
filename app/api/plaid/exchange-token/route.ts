@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server"
-import { plaidClient } from "@/lib/plaid"
+import { requirePlaid, requireUser } from "@/lib/auth"
 import { CountryCode } from "plaid"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { TEST_USER_ID } from "@/lib/user"
 
 export async function POST(request: Request) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+  const plaidClient = await requirePlaid(userId)
+  if (plaidClient instanceof NextResponse) return plaidClient
+
   try {
     const { public_token } = await request.json()
 
@@ -26,7 +31,7 @@ export async function POST(request: Request) {
 
     // Save to plaid_items (supports multiple banks)
     const { error: itemError } = await supabaseAdmin.from("plaid_items").upsert({
-      user_id: TEST_USER_ID,
+      user_id: userId,
       plaid_access_token: accessToken,
       plaid_item_id: itemId,
       institution_name: institutionName,
@@ -43,7 +48,7 @@ export async function POST(request: Request) {
 
     const { error: accountsError } = await supabaseAdmin.from("accounts").upsert(
       accounts.map((account) => ({
-        user_id: TEST_USER_ID,
+        user_id: userId,
         plaid_account_id: account.account_id,
         plaid_item_id: itemId,
         name: account.name,

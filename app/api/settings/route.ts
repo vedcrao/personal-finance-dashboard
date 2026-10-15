@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server"
+import { requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { TEST_USER_ID } from "@/lib/user"
 import { isMissingSchema, MIGRATION_HINT } from "@/lib/db-errors"
 import type { UserSettings } from "@/lib/types"
 
 const DEFAULTS: UserSettings = { weekly_budget: null }
 
 export async function GET() {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+
   const { data, error } = await supabaseAdmin
     .from("user_settings")
     .select("weekly_budget")
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .maybeSingle()
 
   if (isMissingSchema(error)) return NextResponse.json({ settings: DEFAULTS, setupRequired: true })
@@ -23,8 +27,12 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+
   const body = await request.json()
-  const update: Record<string, number | null | string> = { user_id: TEST_USER_ID, updated_at: new Date().toISOString() }
+  const update: Record<string, number | null | string> = { user_id: userId, updated_at: new Date().toISOString() }
 
   if ("weekly_budget" in body) {
     const v = body.weekly_budget === null || body.weekly_budget === "" ? null : Number(body.weekly_budget)

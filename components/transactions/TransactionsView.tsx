@@ -10,6 +10,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl"
 import { EmptyState } from "@/components/ui/States"
 import { RecurringView } from "./RecurringView"
 import { ZelleSummary } from "./ZelleSummary"
+import { TransactionItem } from "./TransactionItem"
 import {
   ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_ORDER, categoryBreakdown, categoryStyle, formatLocation, getBillingPeriods,
   flowOf, getRecentMonths, isSpend, spendAmount, ymd, type Flow,
@@ -83,6 +84,11 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
 
   const q = query.trim().toLowerCase()
   const listOpen = showAll || !!category || !!location || !!q || !!accountId
+  /** Back to the compact picker; also clears the filters that opened the list */
+  const collapse = () => {
+    setShowAll(false); setCategory(null); setLocation(null); setQuery(""); setAccountId(null)
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
   const filtered = periodTxns.filter((t) => {
     if (category && (t.category ?? "Uncategorized") !== category) return false
     if (location && formatLocation(t) !== location) return false
@@ -92,7 +98,10 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
 
   const grouped: [string, Transaction[]][] = accountId
     ? [["", filtered]]
-    : ACCOUNT_TYPE_ORDER.map((type): [string, Transaction[]] => [type, filtered.filter((t) => accountById.get(t.account_id)?.type === type)]).filter(([, l]) => l.length > 0)
+    : [
+        ...ACCOUNT_TYPE_ORDER.map((type): [string, Transaction[]] => [type, filtered.filter((t) => accountById.get(t.account_id)?.type === type)]),
+        ["closed", filtered.filter((t) => !accountById.has(t.account_id))] as [string, Transaction[]],
+      ].filter(([, l]) => l.length > 0)
 
   return (
     <div className="flex flex-col gap-6">
@@ -272,8 +281,10 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
             action={
               <div className="flex items-center gap-2">
                 {listOpen && (
-                  <button type="button" onClick={() => { setShowAll(false); setCategory(null); setLocation(null); setQuery(""); setAccountId(null) }}
-                    className="text-xs font-semibold text-on-surface-variant hover:text-on-surface">Close list</button>
+                  <button type="button" onClick={collapse} aria-label="Collapse transaction list"
+                    className="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs font-semibold text-on-surface transition-colors hover:bg-white/[0.08]">
+                    <Icon name="expand_less" size={16} /> Collapse
+                  </button>
                 )}
                 {accountId && account && (
                   <button type="button" onClick={() => setAccountId(null)} aria-label="Clear account filter"
@@ -294,7 +305,7 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
                   <span className="sr-only">Search transactions</span>
                   <Icon name="search" size={18} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-on-surface-variant" />
                   <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search merchant or category"
-                    className="h-9 w-64 rounded-full border border-white/10 bg-surface-container-lowest pr-3 pl-9 text-sm outline-none placeholder:text-slate-500 focus:border-indigo-brand focus:ring-2 focus:ring-indigo-brand/25" />
+                    className="h-9 w-full rounded-full border border-white/10 bg-surface-container-lowest pr-3 pl-9 md:w-64 text-sm outline-none placeholder:text-slate-500 focus:border-indigo-brand focus:ring-2 focus:ring-indigo-brand/25" />
                 </label>
               </div>
             }
@@ -353,7 +364,14 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
             ) : filtered.length === 0 ? (
               <EmptyState icon="receipt_long" title="No transactions for this period" />
             ) : (
-              <div className="overflow-x-auto">
+              <>
+              {/* Phone: tappable list (tap → edit category / how it counts) */}
+              <div className="divide-y divide-white/[0.04] md:hidden">
+                {filtered.slice(0, 300).map((t) => (
+                  <TransactionItem key={t.id} t={t} account={accountById.get(t.account_id)} showAccount={!accountId} />
+                ))}
+              </div>
+              <div className="overflow-x-auto max-md:hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-white/5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
@@ -418,6 +436,11 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
                   </tbody>
                 </table>
               </div>
+              <button type="button" onClick={collapse}
+                className="flex w-full items-center justify-center gap-1.5 border-t border-white/5 py-3 text-xs font-semibold text-on-surface-variant transition-colors hover:bg-white/[0.03] hover:text-on-surface">
+                <Icon name="expand_less" size={18} /> Collapse list · {filtered.length} transactions
+              </button>
+              </>
             )}
           </Panel>
         </>

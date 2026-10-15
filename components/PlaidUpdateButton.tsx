@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { usePlaidLink } from "react-plaid-link"
 import { Button } from "@/components/ui/Button"
+import { openInSystemBrowser, useIsNative } from "@/components/hooks/useNative"
 
 interface Props {
   itemId: string
@@ -17,7 +18,20 @@ interface Props {
  * Plaid Link "update mode": re-authenticates or adds product consent on an
  * EXISTING connection. Same access token, same accounts, no duplicates.
  */
-export function PlaidUpdateButton({ itemId, consent, label, onDone, onError }: Props) {
+export function PlaidUpdateButton(props: Props) {
+  // In the iOS/Android app, Plaid has to run in the system browser (see useNative.ts)
+  const native = useIsNative()
+  if (native) {
+    return (
+      <Button size="sm" variant="primary" icon="open_in_new" onClick={() => void openInSystemBrowser("/connect")}>
+        {props.label}
+      </Button>
+    )
+  }
+  return <WebUpdateButton {...props} />
+}
+
+function WebUpdateButton({ itemId, consent, label, onDone, onError }: Props) {
   const [token, setToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 

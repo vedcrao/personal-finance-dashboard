@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
+import { requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { TEST_USER_ID } from "@/lib/user"
 import { isMissingSchema } from "@/lib/db-errors"
 import type { BalanceSnapshot } from "@/lib/types"
 
@@ -11,6 +11,10 @@ import type { BalanceSnapshot } from "@/lib/types"
  *   ?account=<uuid>    (optional; single account)
  */
 export async function GET(request: Request) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+
   const { searchParams } = new URL(request.url)
   const since = searchParams.get("since")
   const types = searchParams.getAll("type")
@@ -19,7 +23,7 @@ export async function GET(request: Request) {
   let query = supabaseAdmin
     .from("balance_snapshots")
     .select("date, account_type, current_balance")
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .order("date", { ascending: true })
     .limit(10000)
 

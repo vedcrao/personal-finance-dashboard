@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Vertice · Offline</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0a0f1d; color: #dee2f6; font-family: -apple-system, system-ui, sans-serif; }
+      body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; }
+      .logo { width: 56px; height: 56px; border-radius: 16px; background: linear-gradient(135deg, #6366f1, #03b5d3); }
+      p { margin: 0; color: #c7c4d7; font-size: 14px; max-width: 280px; line-height: 1.5; }
+      button { margin-top: 8px; height: 44px; padding: 0 22px; border: 0; border-radius: 999px; background: #6366f1; color: #fff; font-size: 15px; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div class="logo"></div>
+    <h2 style="margin:8px 0 0">You're offline</h2>
+    <p>Vertice needs a connection to talk to your banks. Check Wi-Fi or cellular and try again.</p>
+    <!-- Keep in sync with server.url in capacitor.config.ts -->
+    <button onclick="location.replace('https://personal-finance-dashboard-hazel-xi.vercel.app/')">Try again</button>
+  </body>
+</html>

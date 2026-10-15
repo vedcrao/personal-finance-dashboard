@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server"
+import { requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { TEST_USER_ID } from "@/lib/user"
 import { isMissingSchema, MIGRATION_HINT } from "@/lib/db-errors"
 
 export async function GET() {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+
   const { data, error } = await supabaseAdmin
     .from("savings_goals")
     .select("id, name, target_amount, account_id, created_at")
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .order("created_at", { ascending: true })
 
   if (isMissingSchema(error)) return NextResponse.json({ goals: [], setupRequired: true })
@@ -19,6 +23,10 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+
   const body = await request.json()
   const name = typeof body.name === "string" ? body.name.trim() : ""
   const target = Number(body.target_amount)
@@ -31,7 +39,7 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabaseAdmin
     .from("savings_goals")
-    .insert({ user_id: TEST_USER_ID, name, target_amount: target, account_id: accountId })
+    .insert({ user_id: userId, name, target_amount: target, account_id: accountId })
     .select("id, name, target_amount, account_id, created_at")
     .single()
 
@@ -41,10 +49,14 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+
   const id = new URL(request.url).searchParams.get("id")
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
 
-  const { error } = await supabaseAdmin.from("savings_goals").delete().eq("id", id).eq("user_id", TEST_USER_ID)
+  const { error } = await supabaseAdmin.from("savings_goals").delete().eq("id", id).eq("user_id", userId)
 
   if (isMissingSchema(error)) return NextResponse.json({ error: MIGRATION_HINT }, { status: 409 })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

@@ -55,7 +55,7 @@ export default function CardsPage() {
               <h2 className="text-lg font-semibold">Credit &amp; Cards</h2>
               <Badge tone="primary">{cards.length} active</Badge>
             </div>
-            <div className="flex gap-12">
+            <div className="flex flex-wrap gap-x-12 gap-y-3">
               <div>
                 <p className="text-xs font-semibold text-on-surface-variant">Total utilized</p>
                 <Money value={totalUsed} splitCents className="mt-0.5 block text-2xl font-bold" />

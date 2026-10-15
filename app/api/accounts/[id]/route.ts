@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server"
+import { requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { TEST_USER_ID } from "@/lib/user"
 import { isMissingSchema, MIGRATION_HINT } from "@/lib/db-errors"
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+
   const { id } = await params
   const body = await request.json()
 
@@ -33,7 +37,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from("accounts")
     .update(updates)
     .eq("id", id)
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
 
   if (error) {
     const msg = isMissingSchema(error) ? MIGRATION_HINT : error.message

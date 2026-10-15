@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
+import { requirePlaid, requireUser } from "@/lib/auth"
+import { isOwner } from "@/lib/user"
 import { CountryCode, Products, type LinkTokenCreateRequest } from "plaid"
-import { plaidClient } from "@/lib/plaid"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { TEST_USER_ID } from "@/lib/user"
 
 const CONSENTABLE: Record<string, Products> = { investments: Products.Investments, auth: Products.Auth, liabilities: Products.Liabilities }
 
@@ -13,11 +13,18 @@ const CONSENTABLE: Record<string, Products> = { investments: Products.Investment
  * POST { item_id }                                     → update mode to fix a broken login
  */
 export async function POST(request: Request) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+  const plaidClient = await requirePlaid(userId)
+  if (plaidClient instanceof NextResponse) return plaidClient
+
   const body = await request.json().catch(() => ({}))
   const webhook = process.env.PLAID_WEBHOOK_URL?.startsWith("https://") ? process.env.PLAID_WEBHOOK_URL : undefined
 
   const base: LinkTokenCreateRequest = {
-    user: { client_user_id: "test-user" }, // must stay stable — existing Items were created with this
+    // Stable per user. The owner's original Items were created as "test-user", so keep that for them
+    user: { client_user_id: isOwner(auth.email) ? "test-user" : userId },
     client_name: "Vertice",
     country_codes: [CountryCode.Us],
     language: "en",
@@ -30,7 +37,7 @@ export async function POST(request: Request) {
         .from("plaid_items")
         .select("plaid_access_token")
         .eq("plaid_item_id", body.item_id)
-        .eq("user_id", TEST_USER_ID)
+        .eq("user_id", userId)
         .single()
       if (!item) return NextResponse.json({ error: "Connection not found" }, { status: 404 })
 

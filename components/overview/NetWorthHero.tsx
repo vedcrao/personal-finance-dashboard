@@ -57,7 +57,7 @@ export function NetWorthHero() {
               <Icon name={hidden ? "visibility_off" : "visibility"} size={16} />
             </button>
           </div>
-          <Money value={nw} splitCents className="mt-2 block text-[40px] leading-[48px] font-bold tracking-[-0.03em]" />
+          <Money value={nw} splitCents className="mt-2 block text-[32px] leading-10 md:text-[40px] md:leading-[48px] font-bold tracking-[-0.03em]" />
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Badge tone={change >= 0 ? "positive" : "negative"} icon={change >= 0 ? "trending_up" : "trending_down"} glow>
               {hidden ? "••••" : money(change, { sign: true })}

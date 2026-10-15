@@ -1,64 +1,62 @@
 "use client"
 
+import Link from "next/link"
 import { Suspense, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Icon } from "@/components/ui/Icon"
+import { AuthShell, AUTH_INPUT, Field } from "@/components/auth/AuthShell"
 
 function LoginForm() {
-  const next = useSearchParams().get("next") ?? "/"
+  const params = useSearchParams()
+  const next = params.get("next") ?? "/"
+  const [identifier, setIdentifier] = useState("")
   const [password, setPassword] = useState("")
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(params.get("error") === "link" ? "That confirmation link is invalid or expired. Try logging in." : null)
   const [busy, setBusy] = useState(false)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError(null)
-    const res = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) })
+    const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier, password }) })
+    const data = await res.json().catch(() => ({}))
     if (res.ok) {
-      // Only allow same-site relative redirects
       window.location.href = next.startsWith("/") && !next.startsWith("//") ? next : "/"
     } else {
-      setError("Wrong password")
+      setError(data.error ?? "Couldn't sign in")
       setBusy(false)
     }
   }
 
   return (
-    <form onSubmit={submit} className="glass-raised flex w-full max-w-sm flex-col gap-4 rounded-2xl p-8">
-      <div className="mb-2 flex items-center gap-2.5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-brand to-secondary-container glow-primary">
-          <Icon name="change_history" size={22} filled className="text-white" />
+    <AuthShell>
+      <form onSubmit={submit} className="glass-raised flex flex-col gap-4 rounded-2xl p-6 md:p-8">
+        <div>
+          <h1 className="text-xl font-semibold">Welcome back</h1>
+          <p className="text-sm text-on-surface-variant">Sign in with your email or username.</p>
         </div>
-        <span className="text-xl font-bold tracking-tight">Vertice</span>
-      </div>
-      <input
-        type="password"
-        autoFocus
-        autoComplete="current-password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        placeholder="Password"
-        className="h-11 rounded-lg border border-white/10 bg-surface-container-lowest px-3 text-sm outline-none focus:border-indigo-brand focus:ring-2 focus:ring-indigo-brand/25"
-      />
-      {error && <p className="text-xs text-error">{error}</p>}
-      <button
-        type="submit"
-        disabled={busy || !password}
-        className="h-11 rounded-full bg-gradient-to-r from-indigo-brand to-[#4F46E5] text-sm font-semibold text-white transition-all hover:brightness-110 disabled:opacity-50"
-      >
-        {busy ? "Checking…" : "Unlock"}
-      </button>
-    </form>
+        <Field label="Email or username">
+          <input className={`${AUTH_INPUT} border-white/10`} autoFocus autoComplete="username" autoCapitalize="none" value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
+        </Field>
+        <Field label="Password">
+          <input className={`${AUTH_INPUT} border-white/10`} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </Field>
+        {error && <p className="rounded-lg bg-error-container/30 px-3 py-2 text-xs text-error">{error}</p>}
+        <button type="submit" disabled={busy || !identifier || !password}
+          className="h-11 rounded-full bg-gradient-to-r from-indigo-brand to-[#4F46E5] text-sm font-semibold text-white transition-all hover:brightness-110 disabled:opacity-50">
+          {busy ? "Signing in…" : "Sign in"}
+        </button>
+        <p className="text-center text-xs text-on-surface-variant">
+          New here? <Link href="/signup" className="font-semibold text-primary hover:underline">Create an account</Link>
+        </p>
+      </form>
+    </AuthShell>
   )
 }
 
 export default function LoginPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-canvas p-6">
-      <Suspense>
-        <LoginForm />
-      </Suspense>
-    </main>
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   )
 }

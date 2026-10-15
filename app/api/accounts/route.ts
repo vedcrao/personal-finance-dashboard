@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
+import { requirePlaid, requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { plaidClient } from "@/lib/plaid"
-import { TEST_USER_ID } from "@/lib/user"
 import { isMissingSchema } from "@/lib/db-errors"
 import { ymd } from "@/lib/finance"
 import type { Holding } from "@/lib/types"
@@ -20,11 +19,11 @@ interface DbAccount {
   apy?: number | null
 }
 
-async function loadAccounts(): Promise<{ data: DbAccount[] | null; error: { message: string } | null }> {
+async function loadAccounts(userId: string): Promise<{ data: DbAccount[] | null; error: { message: string } | null }> {
   const withApy = await supabaseAdmin
     .from("accounts")
     .select(`${BASE_COLUMNS}, apy`)
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .order("type", { ascending: true })
   if (!isMissingSchema(withApy.error)) return withApy
 
@@ -32,29 +31,38 @@ async function loadAccounts(): Promise<{ data: DbAccount[] | null; error: { mess
   return supabaseAdmin
     .from("accounts")
     .select(BASE_COLUMNS)
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .order("type", { ascending: true })
 }
 
 export async function GET() {
-  const { data, error } = await loadAccounts()
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+  const plaidClient = await requirePlaid(userId)
+  if (plaidClient instanceof NextResponse) return plaidClient
+
+  const { data, error } = await loadAccounts(userId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const { data: items } = await supabaseAdmin
     .from("plaid_items")
     .select("plaid_item_id, institution_name, plaid_access_token")
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
 
   const itemMap = new Map(items?.map((i) => [i.plaid_item_id, i.institution_name]) ?? [])
 
   const balanceMap = new Map<string, { current: number | null; available: number | null; limit: number | null; currency: string | null }>()
   const holdingsMap = new Map<string, Holding[]>()
+  // Items Plaid answered for. Only these can tell us an account is gone.
+  const checkedItems = new Set<string>()
 
   if (items?.length) {
     await Promise.all(
       items.map(async (item) => {
         try {
           const accRes = await plaidClient.accountsGet({ access_token: item.plaid_access_token })
+          checkedItems.add(item.plaid_item_id)
           for (const acc of accRes.data.accounts) {
             balanceMap.set(acc.account_id, {
               current: acc.balances.current ?? null,
@@ -94,7 +102,15 @@ export async function GET() {
     )
   }
 
-  const accounts = (data ?? []).map((a) => {
+  // Plaid stops returning accounts you've closed (e.g. a matured CD). Keep their
+  // transactions, but drop them from balances, net worth and account lists.
+  const isClosed = (a: DbAccount) => checkedItems.has(a.plaid_item_id) && !balanceMap.has(a.plaid_account_id)
+  const closed_accounts = (data ?? []).filter(isClosed).map((a) => ({
+    id: a.id, name: a.name, type: a.type, subtype: a.subtype, mask: a.mask,
+    institution_name: itemMap.get(a.plaid_item_id) ?? "Unknown",
+  }))
+
+  const accounts = (data ?? []).filter((a) => !isClosed(a)).map((a) => {
     const bal = balanceMap.get(a.plaid_account_id)
     return {
       id: a.id,
@@ -119,7 +135,7 @@ export async function GET() {
   const snapshots = accounts
     .filter((a) => a.current_balance !== null)
     .map((a) => ({
-      user_id: TEST_USER_ID,
+      user_id: userId,
       account_id: a.id,
       account_type: a.type,
       date: today,
@@ -132,5 +148,5 @@ export async function GET() {
     if (snapErr && !isMissingSchema(snapErr)) console.warn("Snapshot write failed:", snapErr.message)
   }
 
-  return NextResponse.json({ accounts })
+  return NextResponse.json({ accounts, closed_accounts })
 }

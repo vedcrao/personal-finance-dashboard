@@ -6,27 +6,27 @@ import { PerformancePanel } from "@/components/investments/PerformancePanel"
 import { AllocationPanel, type Slice } from "@/components/investments/AllocationPanel"
 import { HoldingsTable, type HoldingRow } from "@/components/investments/HoldingsTable"
 import { InvestmentActivity } from "@/components/investments/InvestmentActivity"
+import { AccountPicker, accountGain, type PickerOption } from "@/components/investments/AccountPicker"
 import { Panel } from "@/components/ui/Panel"
-import { Icon } from "@/components/ui/Icon"
-import { Money } from "@/components/ui/Money"
 import { SegmentedControl } from "@/components/ui/SegmentedControl"
 import { EmptyState } from "@/components/ui/States"
 import { SECURITY_TYPE_LABELS } from "@/lib/finance"
-import type { Account } from "@/lib/types"
+import type { Holding } from "@/lib/types"
 
-function accountGain(a: Account) {
-  const withBasis = a.holdings.filter((h) => h.cost_basis !== null)
-  if (!withBasis.length) return null
-  const basis = withBasis.reduce((s, h) => s + (h.cost_basis ?? 0), 0)
-  const gain = withBasis.reduce((s, h) => s + h.value, 0) - basis
-  return { gain, pct: basis ? (gain / basis) * 100 : 0 }
+type AllocBy = "type" | "sector"
+
+/** The allocation group a holding belongs to (must match the slice labels). */
+function groupOf(h: Holding, by: AllocBy): string {
+  if (by === "sector") return h.sector ?? (h.security_type === "etf" || h.security_type === "mutual fund" ? "Funds (diversified)" : "Unclassified")
+  return SECURITY_TYPE_LABELS[h.security_type ?? "other"] ?? "Other"
 }
 
 export default function InvestmentsPage() {
   const { accounts } = useFinance()
   const investAccounts = useMemo(() => accounts.filter((a) => a.type === "investment"), [accounts])
   const [accountFilter, setAccountFilter] = useState<string | null>(null)
-  const [allocBy, setAllocBy] = useState<"type" | "sector">("type")
+  const [allocBy, setAllocBy] = useState<AllocBy>("type")
+  const [group, setGroup] = useState<string | null>(null)
 
   const scoped = useMemo(
     () => (accountFilter ? investAccounts.filter((a) => a.id === accountFilter) : investAccounts),
@@ -38,27 +38,28 @@ export default function InvestmentsPage() {
     () => scoped.flatMap((a) => a.holdings.map((h) => ({ ...h, accountId: a.id, accountName: a.name, accountBalance: a.current_balance ?? 0 }))),
     [scoped]
   )
-  // Plaid returns no holdings at all when the Item lacks Investments consent
   const needsConsent = investAccounts.length > 0 && investAccounts.every((a) => a.holdings.length === 0)
 
   const withBasis = rows.filter((r) => r.cost_basis !== null)
   const costBasis = withBasis.length ? withBasis.reduce((s, r) => s + (r.cost_basis ?? 0), 0) : null
   const valueWithBasis = withBasis.reduce((s, r) => s + r.value, 0)
   const hasSectors = rows.some((r) => r.sector)
+  const by: AllocBy = allocBy === "sector" && hasSectors ? "sector" : "type"
 
   const slices: Slice[] = useMemo(() => {
     if (!rows.length) return scoped.map((a) => ({ label: a.name, value: a.current_balance ?? 0 }))
-    const m = new Map<string, number>()
+    const m = new Map<string, { value: number; count: number }>()
     for (const r of rows) {
-      const label = allocBy === "sector" && hasSectors
-        ? r.sector ?? (r.security_type === "etf" || r.security_type === "mutual fund" ? "Funds (diversified)" : "Unclassified")
-        : SECURITY_TYPE_LABELS[r.security_type ?? "other"] ?? "Other"
-      m.set(label, (m.get(label) ?? 0) + r.value)
+      const k = groupOf(r, by)
+      const cur = m.get(k) ?? { value: 0, count: 0 }
+      m.set(k, { value: cur.value + r.value, count: cur.count + 1 })
     }
-    const held = rows.reduce((s, r) => s + r.value, 0)
-    if (value - held > 1) m.set("Uninvested cash", (m.get("Uninvested cash") ?? 0) + (value - held))
-    return [...m.entries()].map(([label, v]) => ({ label, value: v }))
-  }, [rows, scoped, value, allocBy, hasSectors])
+    return [...m.entries()].map(([label, v]) => ({ label, ...v }))
+  }, [rows, scoped, by])
+
+  // A selected group that no longer exists (switched account / type↔sector) is ignored
+  const activeGroup = group && slices.some((s) => s.label === group) ? group : null
+  const visibleRows = activeGroup ? rows.filter((r) => groupOf(r, by) === activeGroup) : rows
 
   if (investAccounts.length === 0) {
     return (
@@ -68,62 +69,41 @@ export default function InvestmentsPage() {
     )
   }
 
-  const allEntry = {
-    id: null as string | null, name: "All accounts", subtype: `${investAccounts.length} accounts`, mask: null as string | null,
-    current_balance: investAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0), holdings: investAccounts.flatMap((a) => a.holdings),
-  }
+  const options: PickerOption[] = [
+    {
+      id: null, name: "All accounts",
+      detail: `${investAccounts.length} accounts · ${investAccounts.reduce((s, a) => s + a.holdings.length, 0)} positions`,
+      balance: investAccounts.reduce((s, a) => s + (a.current_balance ?? 0), 0),
+      gain: accountGain(investAccounts.flatMap((a) => a.holdings)),
+    },
+    ...investAccounts.map((a) => ({
+      id: a.id, name: a.name,
+      detail: `${a.subtype ?? "investment"}${a.mask ? ` •• ${a.mask}` : ""}${a.holdings.length ? ` · ${a.holdings.length} positions` : ""}`,
+      balance: a.current_balance ?? 0,
+      gain: accountGain(a.holdings),
+    })),
+  ]
 
   return (
     <div className="grid grid-cols-12 gap-6">
+      <div className="col-span-12">
+        <AccountPicker options={options} value={accountFilter} onChange={(id) => { setAccountFilter(id); setGroup(null) }} />
+      </div>
+
       <div className="col-span-12 xl:col-span-8">
         <PerformancePanel value={value} costBasis={costBasis} holdingsValueWithBasis={valueWithBasis} accountId={accountFilter} />
       </div>
 
-      <div className="col-span-12 flex flex-col gap-6 xl:col-span-4">
-        <Panel title="Accounts" icon="account_balance" iconClass="text-secondary" padded={false}>
-          <ul className="divide-y divide-white/[0.04]">
-            {[allEntry, ...investAccounts].map((a) => {
-              const active = accountFilter === a.id
-              const g = accountGain(a as Account)
-              return (
-                <li key={a.id ?? "all"}>
-                  <button
-                    type="button"
-                    onClick={() => setAccountFilter(a.id)}
-                    className={`flex w-full items-center justify-between gap-3 px-6 py-3 text-left transition-colors ${active ? "bg-indigo-brand/10" : "hover:bg-surface-container-high/40"}`}
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <Icon name={a.id ? "work" : "select_all"} size={18} className={active ? "text-primary" : "text-on-surface-variant"} />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold">{a.name}</p>
-                        <p className="text-[11px] uppercase text-on-surface-variant">
-                          {a.subtype ?? "investment"}{a.mask ? ` •• ${a.mask}` : ""}
-                          {a.holdings.length > 0 && ` · ${a.holdings.length} positions`}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end">
-                      <Money value={a.current_balance ?? 0} cents={false} className="text-sm font-semibold" />
-                      {g && (
-                        <span className={`text-[11px] font-semibold ${g.gain >= 0 ? "text-tertiary" : "text-error"}`}>
-                          <Money value={g.gain} sign cents={false} /> ({g.pct >= 0 ? "+" : ""}{g.pct.toFixed(1)}%)
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        </Panel>
-
+      <div className="col-span-12 xl:col-span-4">
         <AllocationPanel
           slices={slices}
           title="Allocation"
+          selected={rows.length ? activeGroup : null}
+          onSelect={rows.length ? setGroup : undefined}
           subtitle={
             rows.length ? (
               hasSectors ? (
-                <SegmentedControl size="sm" ariaLabel="Allocation by" value={allocBy} onChange={setAllocBy}
+                <SegmentedControl size="sm" ariaLabel="Allocation by" value={allocBy} onChange={(v) => { setAllocBy(v); setGroup(null) }}
                   options={[{ value: "type", label: "Asset type" }, { value: "sector", label: "Sector" }]} />
               ) : "by asset type"
             ) : "by account"
@@ -132,7 +112,7 @@ export default function InvestmentsPage() {
       </div>
 
       <div className="col-span-12 2xl:col-span-8">
-        <HoldingsTable rows={rows} needsConsent={needsConsent} />
+        <HoldingsTable rows={visibleRows} needsConsent={needsConsent} filterLabel={activeGroup} onClearFilter={() => setGroup(null)} />
       </div>
       <div className="col-span-12 2xl:col-span-4">
         <InvestmentActivity accounts={investAccounts} accountId={accountFilter} enabled={!needsConsent} />

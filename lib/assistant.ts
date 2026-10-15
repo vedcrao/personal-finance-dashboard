@@ -1,7 +1,6 @@
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "groq-sdk/resources/chat/completions"
 import { groq } from "./groq"
 import { supabaseAdmin } from "./supabase-server"
-import { TEST_USER_ID } from "./user"
 import { CATEGORIES } from "./categories"
 import { describeRule, type CategorizationRule } from "./rules"
 import { createRule, deleteRule, listRules, parseRuleInput, previewRule, updateRule } from "./rules-server"
@@ -140,13 +139,13 @@ const tools: ChatCompletionTool[] = [
 
 type Txn = Transaction
 
-async function loadTransactions(): Promise<Txn[]> {
+async function loadTransactions(userId: string): Promise<Txn[]> {
   const rows: Txn[] = []
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabaseAdmin
       .from("transactions")
       .select("id, account_id, amount, merchant_name, description, date, category, flow_override, category_source, pending, is_anomaly, city, region, country")
-      .eq("user_id", TEST_USER_ID)
+      .eq("user_id", userId)
       .order("date", { ascending: false })
       .range(from, from + 999)
     if (error) throw new Error(error.message)
@@ -212,10 +211,10 @@ function spendingSummary(all: Txn[], a: Record<string, unknown>) {
   }
 }
 
-export async function runAssistant(history: { role: "user" | "assistant"; content: string }[]) {
+export async function runAssistant(userId: string, history: { role: "user" | "assistant"; content: string }[]) {
   if (!process.env.GROQ_API_KEY) throw new Error("Set GROQ_API_KEY to use the assistant")
 
-  const all = await loadTransactions()
+  const all = await loadTransactions(userId)
   const builtIn = new Set<string>(CATEGORIES)
   const custom = [...new Set(all.map((t) => t.category).filter((c): c is string => !!c && !builtIn.has(c)))]
 
@@ -246,29 +245,29 @@ export async function runAssistant(history: { role: "user" | "assistant"; conten
             result = spendingSummary(all, args)
             break
           case "list_rules":
-            result = (await listRules()).map((r) => ({ id: r.id, name: r.name, rule: describeRule(r) }))
+            result = (await listRules(userId)).map((r) => ({ id: r.id, name: r.name, rule: describeRule(r) }))
             break
           case "preview_rule": {
-            const m = await previewRule(parseRuleInput({ ...args, flow_override: "expense" }))
+            const m = await previewRule(userId, parseRuleInput({ ...args, flow_override: "expense" }))
             result = { would_change: m.length, examples: m.slice(0, 6).map((t) => ({ date: t.date, amount: round(Math.abs(t.amount)), text: label(t), current_category: t.category })) }
             break
           }
           case "create_rule": {
-            const { rule, applied } = await createRule(parseRuleInput(args), "assistant")
+            const { rule, applied } = await createRule(userId, parseRuleInput(args), "assistant")
             actions.push({ type: "rule_created", summary: `${rule.name ? `${rule.name}: ` : ""}${describeRule(rule)}`, applied })
             txnsDirty = true
             result = { ok: true, id: rule.id, applied_to_existing: applied }
             break
           }
           case "update_rule": {
-            const { rule, applied } = await updateRule(String(args.id), parseRuleInput(args))
+            const { rule, applied } = await updateRule(userId, String(args.id), parseRuleInput(args))
             actions.push({ type: "rule_updated", summary: describeRule(rule), applied })
             txnsDirty = true
             result = { ok: true, applied_to_existing: applied }
             break
           }
           case "delete_rule": {
-            const r = await deleteRule(String(args.id))
+            const r = await deleteRule(userId, String(args.id))
             actions.push({ type: "rule_deleted", summary: `Deleted rule (${r.reset} transactions will be re-categorized)` })
             txnsDirty = true
             result = { ok: true, ...r }

@@ -3,10 +3,13 @@
 import { useState } from "react"
 import PlaidLink from "@/components/PlaidLink"
 import { ConnectionsPanel } from "@/components/connect/ConnectionsPanel"
+import { PlaidKeysPanel } from "@/components/connect/PlaidKeysPanel"
 import { useFinance } from "@/components/providers/FinanceProvider"
 import { Panel } from "@/components/ui/Panel"
 import { Button } from "@/components/ui/Button"
 import { Icon } from "@/components/ui/Icon"
+import { Notice } from "@/components/ui/States"
+import { openInSystemBrowser, useIsNative } from "@/components/hooks/useNative"
 
 const PIPELINE = [
   { icon: "bolt", title: "Plaid webhook", body: "Plaid tells the app when a bank has new transactions, usually a few times a day" },
@@ -19,6 +22,7 @@ const PIPELINE = [
 export default function ConnectPage() {
   const { syncAndCategorize, recategorizeAll, syncing, refresh, notify } = useFinance()
   const [connectKey, setConnectKey] = useState(0)
+  const native = useIsNative()
 
   return (
     <div className="grid grid-cols-12 gap-6">
@@ -30,14 +34,24 @@ export default function ConnectPage() {
             Link banks, cards and brokerages through Plaid. Read-only: this app can&apos;t move money.
             To add a permission to a bank that&apos;s already linked, use its button above instead of linking it again.
           </p>
-          <PlaidLink
-            hideList
-            onConnected={async (inst) => {
-              notify(`${inst} connected`)
-              setConnectKey((k) => k + 1)
-              await refresh()
-            }}
-          />
+          {native ? (
+            <div className="flex flex-col gap-3">
+              <Notice>
+                Banks like Chase, Schwab and Wells Fargo log you in on their own site, which only works in a real browser.
+                This opens Connect in a secure browser sheet; close it when you&apos;re done and the app refreshes.
+              </Notice>
+              <Button variant="primary" icon="open_in_new" onClick={() => void openInSystemBrowser("/connect")}>Connect a bank</Button>
+            </div>
+          ) : (
+            <PlaidLink
+              hideList
+              onConnected={async (inst) => {
+                notify(`${inst} connected`)
+                setConnectKey((k) => k + 1)
+                await refresh()
+              }}
+            />
+          )}
         </Panel>
 
         <Panel title="Manual controls" icon="tune" iconClass="text-tertiary">
@@ -52,7 +66,8 @@ export default function ConnectPage() {
         </Panel>
       </div>
 
-      <div className="col-span-12 xl:col-span-5">
+      <div className="col-span-12 flex flex-col gap-6 xl:col-span-5">
+        <PlaidKeysPanel />
         <Panel title="How updates flow in" icon="account_tree" iconClass="text-secondary">
           <ol className="flex flex-col gap-4">
             {PIPELINE.map((s, i) => (

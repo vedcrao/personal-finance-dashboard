@@ -73,7 +73,7 @@ export default function AccountsPage() {
             <span className="h-2 w-2 animate-pulse rounded-full bg-tertiary shadow-[0_0_8px_rgba(78,222,163,0.8)]" />
             <SectionLabel>Cash &amp; banking</SectionLabel>
           </div>
-          <Money value={total} splitCents className="mt-2 block text-[40px] leading-[48px] font-bold tracking-[-0.03em]" />
+          <Money value={total} splitCents className="mt-2 block text-[32px] leading-10 md:text-[40px] md:leading-[48px] font-bold tracking-[-0.03em]" />
           <p className="mt-1 text-sm text-on-surface-variant">
             Total liquid capital available across {cashAccounts.length} {cashAccounts.length === 1 ? "account" : "accounts"}
           </p>

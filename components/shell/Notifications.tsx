@@ -76,7 +76,7 @@ export function Notifications() {
       </button>
 
       {open && (
-        <div className="glass-raised absolute right-0 top-12 z-40 w-96 animate-pop-in rounded-2xl p-2">
+        <div className="glass-raised fixed right-3 left-3 top-[calc(env(safe-area-inset-top)+3.75rem)] z-40 animate-pop-in rounded-2xl p-2 md:absolute md:left-auto md:right-0 md:top-12 md:w-96">
           <p className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">Alerts</p>
           {alerts.length === 0 ? (
             <p className="px-3 py-6 text-center text-sm text-on-surface-variant">You&apos;re all caught up.</p>

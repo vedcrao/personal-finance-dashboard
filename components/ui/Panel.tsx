@@ -32,7 +32,7 @@ export function Panel({
         </>
       )}
       {(title || action) && (
-        <header className={`relative flex items-center justify-between gap-3 ${padded ? "px-6 pt-5" : "px-6 py-4 border-b border-white/5"}`}>
+        <header className={`relative flex flex-wrap items-center justify-between gap-3 ${padded ? "px-4 pt-4 md:px-6 md:pt-5" : "px-4 py-3 md:px-6 md:py-4 border-b border-white/5"}`}>
           <div className="flex min-w-0 items-center gap-2">
             {icon && <Icon name={icon} size={20} className={iconClass} />}
             {typeof title === "string" ? <h2 className="truncate text-lg font-semibold tracking-tight">{title}</h2> : title}
@@ -40,7 +40,7 @@ export function Panel({
           {action}
         </header>
       )}
-      <div className={`relative ${padded ? "p-6" : ""} ${title && padded ? "pt-4" : ""} ${bodyClassName}`}>{children}</div>
+      <div className={`relative ${padded ? "p-4 md:p-6" : ""} ${title && padded ? "pt-4" : ""} ${bodyClassName}`}>{children}</div>
     </section>
   )
 }

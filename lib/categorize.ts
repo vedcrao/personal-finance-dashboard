@@ -45,6 +45,7 @@ export interface CategorizeResult {
 
 const DETAILED: Record<string, string> = {
   FOOD_AND_DRINK_GROCERIES: "Groceries",
+  FOOD_AND_DRINK_COFFEE: "Coffee",
   RENT_AND_UTILITIES_RENT: "Rent",
   LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: "Transfer",
   GENERAL_MERCHANDISE_SUPERSTORES: "Shopping",
@@ -71,6 +72,9 @@ const PRIMARY: Record<string, string> = {
   GENERAL_SERVICES: "Other",
   GOVERNMENT_AND_NON_PROFIT: "Other",
 }
+
+/** Clearly-coffee names. "Cafe" alone is left to Plaid/AI: plenty of cafés are restaurants. */
+const COFFEE_NAME = /\b(coffee|espresso|starbucks|dunkin|peet'?s|blue bottle|dutch bros|la colombe|tim hortons|philz|intelligentsia|caribou|stumptown)\b/i
 
 /** Venmo / Cash App / PayPal etc. Plaid calls these transfers, but they're usually real spending or income. */
 const P2P_DETAILED = new Set(["TRANSFER_OUT_TRANSFER_OUT_FROM_APPS", "TRANSFER_IN_TRANSFER_IN_FROM_APPS"])
@@ -129,6 +133,7 @@ Rules:
 - Only CREDIT (money IN) transactions can be "Income" (payroll, salary, deposits). DEBIT is never "Income".
 - Credit card payments, moving money between your own accounts, ATM withdrawals -> "Transfer".
 - Student loan / auto loan / mortgage payments -> "Debt Payments".
+- Coffee shops and cafés where you mostly buy drinks (Starbucks, local coffee roasters, tea/boba) -> "Coffee"; restaurants and cafés serving meals -> "Food & Dining".
 - P2P payments (Venmo/CashApp/PayPal): use the memo; dining -> "Food & Dining", rides -> "Transport", rent/large to a person -> "Rent", otherwise "Other".
 - Infer a 2-letter country code and city only if evident from the merchant name, else null.
 
@@ -180,6 +185,11 @@ export async function categorize(rows: CategorizeInput[], rules: Rule[]): Promis
     }
     if (zelle) {
       results.push({ id: t.id, category: "Zelle", category_source: "rule" })
+      continue
+    }
+    // Unambiguous coffee shops by name (Plaid often files these under generic "food")
+    if (t.amount > 0 && COFFEE_NAME.test(`${t.merchant_name ?? ""} ${t.description}`)) {
+      results.push({ id: t.id, category: "Coffee", category_source: "rule" })
       continue
     }
     const plaid = mapPlaidCategory(t)

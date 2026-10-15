@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
+import { requirePlaid, requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
-import { plaidClient } from "@/lib/plaid"
-import { TEST_USER_ID } from "@/lib/user"
 
 /**
  * Routing + account numbers for a depository account via Plaid Auth.
@@ -10,13 +9,19 @@ import { TEST_USER_ID } from "@/lib/user"
  * additional_consented_products; older Items need to be re-linked.
  */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
+  const plaidClient = await requirePlaid(userId)
+  if (plaidClient instanceof NextResponse) return plaidClient
+
   const { id } = await params
 
   const { data: account, error } = await supabaseAdmin
     .from("accounts")
     .select("plaid_account_id, plaid_item_id, type")
     .eq("id", id)
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .single()
 
   if (error || !account) return NextResponse.json({ error: "Account not found" }, { status: 404 })
@@ -28,7 +33,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     .from("plaid_items")
     .select("plaid_access_token")
     .eq("plaid_item_id", account.plaid_item_id)
-    .eq("user_id", TEST_USER_ID)
+    .eq("user_id", userId)
     .single()
 
   if (!item) return NextResponse.json({ error: "Bank connection not found" }, { status: 404 })

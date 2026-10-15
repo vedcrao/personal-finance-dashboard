@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Plus_Jakarta_Sans } from "next/font/google"
 import "./globals.css"
 
@@ -11,6 +11,17 @@ const jakarta = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: { default: "Vertice — Personal Finance", template: "%s · Vertice" },
   description: "Net worth, spending, cards and investments in one place.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "Vertice", statusBarStyle: "black-translucent" },
+  icons: { icon: "/icon-512.png", apple: "/apple-touch-icon.png" },
+}
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // Lets the app draw under the notch / home indicator; spacing comes from env(safe-area-inset-*)
+  viewportFit: "cover",
+  themeColor: "#0a0f1d",
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

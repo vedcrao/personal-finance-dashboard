@@ -27,7 +27,7 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
 
 export function Sidebar() {
   const pathname = usePathname()
-  const { accounts, sendDigest, sendingDigest } = useFinance()
+  const { accounts, sendDigest, sendingDigest, me, signOut } = useFinance()
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href))
   const institutions = new Set(accounts.map((a) => a.institution_name)).size
 
@@ -52,15 +52,34 @@ export function Sidebar() {
         <p className="mt-1 text-xs text-on-surface-variant">
           {accounts.length} accounts · {institutions} {institutions === 1 ? "institution" : "institutions"}
         </p>
-        <button
-          type="button"
-          onClick={sendDigest}
-          disabled={sendingDigest}
-          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-surface-container-high py-2 text-xs font-semibold text-on-surface-variant transition-colors hover:text-on-surface disabled:opacity-50"
-        >
-          <Icon name={sendingDigest ? "progress_activity" : "sms"} size={16} className={sendingDigest ? "animate-spin" : ""} />
-          {sendingDigest ? "Sending…" : "Text me a weekly digest"}
-        </button>
+        {me?.owner && (
+          <button
+            type="button"
+            onClick={sendDigest}
+            disabled={sendingDigest}
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-surface-container-high py-2 text-xs font-semibold text-on-surface-variant transition-colors hover:text-on-surface disabled:opacity-50"
+          >
+            <Icon name={sendingDigest ? "progress_activity" : "sms"} size={16} className={sendingDigest ? "animate-spin" : ""} />
+            {sendingDigest ? "Sending…" : "Text me a weekly digest"}
+          </button>
+        )}
+        {me && (
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/5 pt-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-brand/20 text-[11px] font-bold uppercase text-primary">
+                {(me.username ?? me.email)[0]}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-xs font-semibold">@{me.username ?? me.email.split("@")[0]}</p>
+                <p className="truncate text-[10px] text-on-surface-variant">{me.email}</p>
+              </div>
+            </div>
+            <button type="button" onClick={signOut} aria-label="Sign out" title="Sign out"
+              className="rounded-md p-1.5 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface">
+              <Icon name="logout" size={16} />
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   )

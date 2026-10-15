@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { requireUser } from "@/lib/auth"
 import { applyCategorization } from "@/lib/sync"
 import { runAssistant } from "@/lib/assistant"
 
@@ -6,6 +7,9 @@ export const maxDuration = 60
 
 /** POST { messages: [{ role: "user" | "assistant", content }] } → { reply, actions, refresh } */
 export async function POST(request: Request) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.id
   const body = await request.json().catch(() => ({}))
   const messages = Array.isArray(body.messages)
     ? body.messages.filter(
@@ -18,9 +22,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await runAssistant(messages)
+    const result = await runAssistant(userId, messages)
     // Deleted rules leave transactions uncategorized; re-decide them right away (time-boxed)
-    if (result.actions.some((a) => a.type === "rule_deleted")) await applyCategorization("uncategorized", { budgetMs: 15_000 })
+    if (result.actions.some((a) => a.type === "rule_deleted")) await applyCategorization(userId, "uncategorized", { budgetMs: 15_000 })
     return NextResponse.json(result)
   } catch (e) {
     console.error("Assistant error:", e)
