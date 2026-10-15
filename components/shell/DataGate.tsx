@@ -12,7 +12,7 @@ export function DataGate({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const { loading, error, hasData, lastUpdated, refresh } = useFinance()
 
-  if (pathname.startsWith("/connect")) return <>{children}</>
+  if (pathname.startsWith("/connect") || pathname.startsWith("/settings")) return <>{children}</>
 
   if (loading && !lastUpdated) {
     return (

@@ -22,6 +22,7 @@ export async function POST(request: Request) {
   const env: PlaidEnv = body.plaid_env === "production" ? "production" : "sandbox"
 
   const fail = (error: string, field?: string, status = 400) => NextResponse.json({ error, field }, { status })
+  if (body.accepted_terms !== true) return fail("Please accept the Terms and Privacy Policy to continue")
   if (!USERNAME_RE.test(username)) return fail("Username must be 3–24 characters: letters, numbers or _", "username")
   if (!EMAIL_RE.test(email)) return fail("Enter a valid email", "email")
   if (password.length < 8) return fail("Password must be at least 8 characters", "password")
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { username }, emailRedirectTo: `${origin}/auth/callback?next=/connect` },
+    options: { data: { username, accepted_terms_at: new Date().toISOString() }, emailRedirectTo: `${origin}/auth/callback?next=/connect` },
   })
   if (error) return fail(error.message, error.message.toLowerCase().includes("password") ? "password" : "email")
   const user = data.user

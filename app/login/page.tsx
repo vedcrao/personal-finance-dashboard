@@ -40,6 +40,7 @@ function LoginForm() {
         <Field label="Password">
           <input className={`${AUTH_INPUT} border-white/10`} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
+        {params.get("deleted") && !error && <p className="rounded-lg bg-tertiary/10 px-3 py-2 text-xs text-tertiary">Your account and all its data were deleted.</p>}
         {error && <p className="rounded-lg bg-error-container/30 px-3 py-2 text-xs text-error">{error}</p>}
         <button type="submit" disabled={busy || !identifier || !password}
           className="h-11 rounded-full bg-gradient-to-r from-indigo-brand to-[#4F46E5] text-sm font-semibold text-white transition-all hover:brightness-110 disabled:opacity-50">
@@ -49,6 +50,11 @@ function LoginForm() {
           New here? <Link href="/signup" className="font-semibold text-primary hover:underline">Create an account</Link>
         </p>
       </form>
+      <p className="mt-4 flex justify-center gap-4 text-[11px] text-on-surface-variant">
+        <Link href="/privacy" className="hover:text-on-surface">Privacy</Link>
+        <Link href="/terms" className="hover:text-on-surface">Terms</Link>
+        <Link href="/support" className="hover:text-on-surface">Support</Link>
+      </p>
     </AuthShell>
   )
 }

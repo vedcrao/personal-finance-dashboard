@@ -17,6 +17,7 @@ export const NAV: NavItem[] = [
 
 export const SECONDARY_NAV: NavItem[] = [
   { href: "/connect", label: "Connect banks", icon: "link", title: "Connect & Sync", subtitle: "Link institutions with Plaid and keep data fresh" },
+  { href: "/settings", label: "Settings", icon: "settings", title: "Settings", subtitle: "Account, Plaid keys, privacy and account deletion" },
 ]
 
 export function navFor(pathname: string): NavItem {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
-import { requireUser } from "@/lib/auth"
+import { requireUser, supabaseServer } from "@/lib/auth"
+import { deleteUserCompletely } from "@/lib/account"
 import { supabaseAdmin } from "@/lib/supabase-server"
 import { encryptSecret } from "@/lib/crypto"
 import { forgetPlaidClient, verifyPlaidKeys, type PlaidEnv } from "@/lib/plaid"
@@ -38,4 +39,26 @@ export async function PUT(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   forgetPlaidClient(auth.id)
   return NextResponse.json({ ok: true })
+}
+
+/**
+ * DELETE { confirm: "<your username>" } → permanently delete the account and all data.
+ * Typing the username guards against accidental taps.
+ */
+export async function DELETE(request: Request) {
+  const auth = await requireUser()
+  if (auth instanceof NextResponse) return auth
+  const body = await request.json().catch(() => ({}))
+  const expected = (auth.username ?? auth.email).toLowerCase()
+  if (String(body.confirm ?? "").trim().toLowerCase() !== expected) {
+    return NextResponse.json({ error: `Type ${expected} to confirm` }, { status: 400 })
+  }
+  try {
+    const report = await deleteUserCompletely(auth.id)
+    const supabase = await supabaseServer()
+    await supabase.auth.signOut().catch(() => {})
+    return NextResponse.json({ deleted: true, ...report })
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Deletion failed" }, { status: 500 })
+  }
 }

@@ -10,10 +10,10 @@ import { categoryStyle, detectRecurring, type RecurringItem } from "@/lib/financ
 import { shortDate } from "@/lib/format"
 import type { Transaction } from "@/lib/types"
 
-const FREQ_TONE: Record<RecurringItem["frequency"], Tone> = { Weekly: "warning", "Bi-weekly": "warning", Monthly: "primary", Quarterly: "secondary" }
+const FREQ_TONE: Record<RecurringItem["frequency"], Tone> = { Weekly: "warning", "Bi-weekly": "warning", "Twice a month": "warning", Monthly: "primary", Quarterly: "secondary" }
 
 function RecurringTable({ items, empty }: { items: RecurringItem[]; empty: string }) {
-  if (!items.length) return <EmptyState icon="event_repeat" title={empty}>Sync more months of data to improve detection.</EmptyState>
+  if (!items.length) return <EmptyState icon="event_repeat" title={empty}>Something counts once it’s the same amount, on a regular schedule, for at least 3 months in a row.</EmptyState>
   return (
     <table className="w-full text-sm">
       <thead>
@@ -78,7 +78,7 @@ export function RecurringView({ transactions }: { transactions: Transaction[] })
       </div>
 
       <Panel title="Subscriptions & Bills" icon="autorenew" iconClass="text-primary" padded={false}
-        action={<span className="text-xs text-on-surface-variant">Consistent amount across multiple months</span>}>
+        action={<span className="text-xs text-on-surface-variant">Same amount, regular schedule, 3+ months in a row</span>}>
         <div className="overflow-x-auto"><RecurringTable items={out} empty="No recurring charges detected yet" /></div>
       </Panel>
 

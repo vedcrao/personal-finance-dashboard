@@ -6,7 +6,7 @@ import { createServerClient } from "@supabase/ssr"
  * Public: sign-in / sign-up pages and endpoints, the email-confirmation callback,
  * Plaid's webhook (signature-verified per user) and the Vercel cron (CRON_SECRET).
  */
-const PUBLIC_EXACT = new Set(["/login", "/signup", "/auth/callback", "/api/auth/login", "/api/auth/signup", "/api/plaid/webhook"])
+const PUBLIC_EXACT = new Set(["/login", "/signup", "/privacy", "/terms", "/support", "/auth/callback", "/api/auth/login", "/api/auth/signup", "/api/plaid/webhook"])
 const PUBLIC_PREFIX = ["/api/cron/"]
 
 export async function proxy(request: NextRequest) {

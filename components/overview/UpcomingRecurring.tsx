@@ -11,7 +11,7 @@ import { EmptyState } from "@/components/ui/States"
 import { addDays, categoryStyle, detectRecurring, parseYmd, ymd } from "@/lib/finance"
 import { relativeDay, shortDate } from "@/lib/format"
 
-const INTERVAL_DAYS = { Weekly: 7, "Bi-weekly": 14, Monthly: 30, Quarterly: 91 }
+const INTERVAL_DAYS = { Weekly: 7, "Bi-weekly": 14, "Twice a month": 15, Monthly: 30, Quarterly: 91 }
 
 /** Recurring charges with their next expected date, soonest first. */
 export function UpcomingRecurring() {
@@ -45,7 +45,7 @@ export function UpcomingRecurring() {
       }
     >
       {upcoming.length === 0 ? (
-        <EmptyState icon="event_repeat" title="No recurring charges yet">Sync a few months of data to detect subscriptions.</EmptyState>
+        <EmptyState icon="event_repeat" title="No recurring charges yet">Bills show up after 3 months of the same charge on a regular schedule.</EmptyState>
       ) : (
         <>
           <ul className="divide-y divide-white/[0.04]">

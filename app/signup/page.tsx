@@ -28,6 +28,7 @@ const STEPS = [
 
 export default function SignupPage() {
   const [form, setForm] = useState({ username: "", email: "", password: "", plaid_client_id: "", plaid_secret: "", plaid_env: "sandbox" })
+  const [accepted, setAccepted] = useState(false)
   const [errors, setErrors] = useState<Partial<Record<Fields | "form", string>>>({})
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<null | "confirm_email">(null)
@@ -42,7 +43,7 @@ export default function SignupPage() {
     e.preventDefault()
     setBusy(true)
     setErrors({})
-    const res = await fetch("/api/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) })
+    const res = await fetch("/api/auth/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, accepted_terms: accepted }) })
     const data = await res.json().catch(() => ({}))
     setBusy(false)
     if (!res.ok) return setErrors(data.field ? { [data.field]: data.error } : { form: data.error ?? "Sign up failed" })
@@ -110,8 +111,17 @@ export default function SignupPage() {
             </Field>
           </div>
 
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-surface-container-low p-3 text-xs leading-relaxed text-on-surface-variant">
+            <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-indigo-500" />
+            <span>
+              I&apos;m 18 or older and agree to the <Link href="/terms" target="_blank" className="font-semibold text-primary">Terms & Disclaimer</Link> and{" "}
+              <Link href="/privacy" target="_blank" className="font-semibold text-primary">Privacy Policy</Link>. I understand transaction descriptions, amounts and
+              dates (never my name, email or account numbers) are sent to AI services (Groq, Google Gemini) to categorize them and answer assistant questions.
+            </span>
+          </label>
+
           {errors.form && <p className="rounded-lg bg-error-container/30 px-3 py-2 text-xs text-error">{errors.form}</p>}
-          <button type="submit" disabled={busy}
+          <button type="submit" disabled={busy || !accepted}
             className="mt-1 h-11 rounded-full bg-gradient-to-r from-indigo-brand to-[#4F46E5] text-sm font-semibold text-white transition-all hover:brightness-110 disabled:opacity-50">
             {busy ? "Checking your Plaid keys…" : "Create account"}
           </button>
@@ -138,7 +148,7 @@ export default function SignupPage() {
           </ol>
           <div className="mt-auto rounded-xl bg-surface-container-low p-3 text-[11px] leading-relaxed text-on-surface-variant">
             <p className="mb-1 flex items-center gap-1 font-semibold text-on-surface"><Icon name="info" size={14} /> Good to know</p>
-            Plaid bills your own Plaid account for production usage. This app only reads data; it can&apos;t move money. You can change keys later on the Connect page.
+            Plaid bills your own Plaid account for production usage. This app only reads data; it can&apos;t move money. You can change keys later in Settings.
           </div>
         </aside>
       </div>

@@ -1,4 +1,5 @@
 import type { Account, Transaction } from "./types"
+import { ruleKeyFor } from "./categories"
 
 /* ------------------------------------------------------------------ */
 /* Classification                                                      */
@@ -331,7 +332,7 @@ export function formatLocation(t: Transaction): string | null {
 export interface RecurringItem {
   merchant: string
   avgAmount: number
-  frequency: "Weekly" | "Bi-weekly" | "Monthly" | "Quarterly"
+  frequency: "Weekly" | "Bi-weekly" | "Twice a month" | "Monthly" | "Quarterly"
   monthlyCost: number
   count: number
   lastDate: string
@@ -339,40 +340,104 @@ export interface RecurringItem {
   direction: "out" | "in"
 }
 
+const FREQS: { name: RecurringItem["frequency"]; days: number; tol: number; perMonth: number }[] = [
+  { name: "Weekly", days: 7, tol: 2, perMonth: 4.33 },
+  // Every other Friday: gaps are exactly 14 days
+  { name: "Bi-weekly", days: 14, tol: 1, perMonth: 2.17 },
+  // 15th + month-end paydays: gaps wobble between 13 and 17 days
+  { name: "Twice a month", days: 15.2, tol: 3, perMonth: 2 },
+  { name: "Monthly", days: 30.4, tol: 6, perMonth: 1 },
+  { name: "Quarterly", days: 91, tol: 15, perMonth: 1 / 3 },
+]
+const MIN_OCCURRENCES = 3
+const MIN_CONSECUTIVE_MONTHS = 3
+
 /**
- * Finds merchants that charge (or pay) a consistent amount across multiple months.
- * direction "out" = subscriptions/bills, "in" = paychecks/recurring deposits.
+ * Stable "who is this" key: drops confirmation codes ("Conf# x1f5…") and bank ACH noise
+ * ("IBM 3141 DES:PAYROLL INDN:… TRN*1*48155") so every charge from the same payee groups together.
  */
-export function detectRecurring(txns: Transaction[], direction: "out" | "in" = "out"): RecurringItem[] {
-  const candidates = txns.filter((t) => (direction === "out" ? flowOf(t) === "expense" : isIncome(t)))
+export function recurringKey(t: Pick<Transaction, "description" | "merchant_name">): string {
+  return ruleKeyFor(t)
+    .split(/\s(?:des|id|indn|co id|ppd|ccd|web|pmt info|trn|ref)[:*]/)[0]
+    .split(" ")
+    .filter((w) => !/\d{5,}|\*/.test(w))
+    .join(" ")
+    .trim()
+}
+
+const monthIndex = (d: string) => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7)) - 1
+const daysBetween = (a: string, b: string) => Math.round((parseYmd(b).getTime() - parseYmd(a).getTime()) / 86400000)
+
+/** Longest run of consecutive calendar months that contain at least one charge. */
+function longestMonthRun(dates: string[]): number {
+  const months = [...new Set(dates.map(monthIndex))].sort((x, y) => x - y)
+  let best = 0
+  let run = 0
+  months.forEach((m, i) => { run = i > 0 && m === months[i - 1] + 1 ? run + 1 : 1; best = Math.max(best, run) })
+  return best
+}
+
+/**
+ * Real subscriptions / bills / paychecks only:
+ *   - the SAME amount (±10%, or ±$1 for small charges) charged at least 3 times
+ *   - across at least 3 consecutive months (quarterly: 3 charges in a row)
+ *   - at a regular interval (weekly / bi-weekly / monthly / quarterly)
+ *   - still active: the last one isn't overdue by more than one full interval
+ * Two dinners at the same place, or a merchant you visit often for varying amounts, don't count.
+ * direction "out" = bills / subscriptions, "in" = paychecks / recurring deposits.
+ */
+export function detectRecurring(txns: Transaction[], direction: "out" | "in" = "out", today = ymd(new Date())): RecurringItem[] {
+  // Posted only: a pending charge and its posted copy would look like two charges
+  const candidates = txns.filter((t) => !t.pending && (direction === "out" ? flowOf(t) === "expense" : isIncome(t)))
   const byMerchant = new Map<string, Transaction[]>()
   for (const t of candidates) {
-    const key = (t.merchant_name || t.description).trim()
+    const key = recurringKey(t)
     byMerchant.set(key, [...(byMerchant.get(key) ?? []), t])
   }
 
   const results: RecurringItem[] = []
-  for (const [merchant, group] of byMerchant) {
-    if (group.length < 2) continue
-    if (new Set(group.map((t) => t.date.slice(0, 7))).size < 2) continue
-    const sorted = [...group].sort((a, b) => a.date.localeCompare(b.date))
+  for (const group of byMerchant.values()) {
+    if (group.length < MIN_OCCURRENCES) continue
+
+    // Largest cluster of charges with (nearly) the same amount: one merchant can bill
+    // a steady subscription alongside one-off purchases
+    let cluster: Transaction[] = []
+    for (const center of group) {
+      const c = Math.abs(center.amount)
+      const tol = Math.max(c * 0.1, 1)
+      const members = group.filter((t) => Math.abs(Math.abs(t.amount) - c) <= tol)
+      if (members.length > cluster.length) cluster = members
+    }
+    if (cluster.length < MIN_OCCURRENCES) continue
+    const sorted = [...cluster].sort((a, b) => a.date.localeCompare(b.date))
+
+    // Regular interval: most gaps match one known frequency
+    const gaps = sorted.slice(1).map((t, i) => daysBetween(sorted[i].date, t.date)).filter((g) => g > 0)
+    if (gaps.length < MIN_OCCURRENCES - 1) continue
+    const median = [...gaps].sort((a, b) => a - b)[Math.floor(gaps.length / 2)]
+    // First frequency whose interval fits ≥70% of the gaps
+    const freq = FREQS.find((f) => Math.abs(median - f.days) <= f.tol && gaps.filter((g) => Math.abs(g - f.days) <= f.tol).length / gaps.length >= 0.7)
+    if (!freq) continue
+
+    // Long enough history
+    const dates = sorted.map((t) => t.date)
+    if (freq.name !== "Quarterly" && longestMonthRun(dates) < MIN_CONSECUTIVE_MONTHS) continue
+
+    // Still active (not cancelled)
+    const last = dates[dates.length - 1]
+    if (daysBetween(last, today) > freq.days * 2 + freq.tol) continue
+
     const amounts = sorted.map((t) => Math.abs(t.amount))
     const avg = amounts.reduce((s, a) => s + a, 0) / amounts.length
-    const maxDev = Math.max(...amounts.map((a) => Math.abs(a - avg) / avg))
-    if (maxDev > 0.15) continue
-
-    const intervals = sorted.slice(1).map((t, i) => (parseYmd(t.date).getTime() - parseYmd(sorted[i].date).getTime()) / 86400000)
-    const avgInterval = intervals.reduce((s, d) => s + d, 0) / intervals.length
-
-    let frequency: RecurringItem["frequency"] = "Monthly"
-    let monthlyCost = avg
-    if (avgInterval <= 10) { frequency = "Weekly"; monthlyCost = avg * 4.33 }
-    else if (avgInterval <= 18) { frequency = "Bi-weekly"; monthlyCost = avg * 2.17 }
-    else if (avgInterval > 80) { frequency = "Quarterly"; monthlyCost = avg / 3 }
-
     results.push({
-      merchant, avgAmount: avg, frequency, monthlyCost, count: group.length,
-      lastDate: sorted[sorted.length - 1].date, category: group[0].category, direction,
+      merchant: sorted[0].merchant_name || sorted[sorted.length - 1].description.replace(/\s*conf(irmation)?\s*#.*$/i, "").trim(),
+      avgAmount: avg,
+      frequency: freq.name,
+      monthlyCost: avg * freq.perMonth,
+      count: sorted.length,
+      lastDate: last,
+      category: sorted[sorted.length - 1].category,
+      direction,
     })
   }
   return results.sort((a, b) => b.monthlyCost - a.monthlyCost)
