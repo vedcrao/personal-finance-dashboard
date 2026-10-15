@@ -4,7 +4,6 @@ import { useState } from "react"
 import PlaidLink from "@/components/PlaidLink"
 import { ConnectionsPanel } from "@/components/connect/ConnectionsPanel"
 import { useFinance } from "@/components/providers/FinanceProvider"
-import { sendJson } from "@/components/hooks/useApi"
 import { Panel } from "@/components/ui/Panel"
 import { Button } from "@/components/ui/Button"
 import { Icon } from "@/components/ui/Icon"
@@ -18,22 +17,8 @@ const PIPELINE = [
 ]
 
 export default function ConnectPage() {
-  const { syncAndCategorize, syncing, refresh, notify } = useFinance()
-  const [recategorizing, setRecategorizing] = useState(false)
+  const { syncAndCategorize, recategorizeAll, syncing, refresh, notify } = useFinance()
   const [connectKey, setConnectKey] = useState(0)
-
-  async function recategorizeAll() {
-    setRecategorizing(true)
-    try {
-      const r = await sendJson<{ categorized: number; llmUsed: number }>("/api/ai/categorize", "POST", { mode: "all" })
-      notify(`Re-categorized ${r.categorized} transactions · ${r.llmUsed} needed AI`)
-      await refresh()
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Re-categorize failed", "error")
-    } finally {
-      setRecategorizing(false)
-    }
-  }
 
   return (
     <div className="grid grid-cols-12 gap-6">
@@ -62,7 +47,7 @@ export default function ConnectPage() {
           </p>
           <div className="flex flex-wrap gap-2">
             <Button variant="primary" icon="sync" loading={!!syncing} onClick={syncAndCategorize}>{syncing ?? "Sync now"}</Button>
-            <Button icon="category" loading={recategorizing} onClick={recategorizeAll}>Re-categorize everything</Button>
+            <Button icon="category" disabled={!!syncing} onClick={recategorizeAll}>Re-categorize everything</Button>
           </div>
         </Panel>
       </div>

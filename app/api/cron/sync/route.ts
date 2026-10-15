@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { syncAndCategorize } from "@/lib/sync"
+import { applyCategorization, syncAndCategorize } from "@/lib/sync"
 
 export const maxDuration = 60
 
@@ -13,7 +13,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
   try {
-    return NextResponse.json(await syncAndCategorize())
+    const r = await syncAndCategorize(undefined, { budgetMs: 20_000 })
+    const rest = r.remaining > 0 ? await applyCategorization("uncategorized", { budgetMs: 20_000 }) : null
+    return NextResponse.json({ ...r, remaining: rest?.remaining ?? r.remaining })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Sync failed" }, { status: 500 })
   }

@@ -13,9 +13,10 @@ export function isZelle(t: { description: string; merchant_name: string | null }
 
 /** Stable text to match future transactions against (drops confirmation codes, memos, ids). */
 export function ruleKeyFor(t: { description: string; merchant_name: string | null }): string {
-  if (t.merchant_name && !isZelle(t)) return t.merchant_name.toLowerCase().trim()
+  if (t.merchant_name && !isZelle(t)) return t.merchant_name.toLowerCase().replace(/[®™©]/g, "").trim()
   return t.description
     .toLowerCase()
+    .replace(/[®™©]/g, "")
     .replace(/\bconf(irmation)?\s*#.*$/i, "")
     .replace(/\bfor\s+".*$/i, "")
     .replace(/\b(id|ref|trace)[:#]?\s*\w+/gi, "")

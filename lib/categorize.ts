@@ -12,6 +12,7 @@ import { gemini } from "./gemini"
  */
 
 import { CATEGORIES, isZelle } from "./categories"
+import { findRule, type CategorizationRule } from "./rules"
 
 export { CATEGORIES, isZelle, ruleKeyFor } from "./categories"
 
@@ -27,7 +28,7 @@ export interface CategorizeInput {
   raw_data: { personal_finance_category?: { primary: string; detailed: string; confidence_level?: string | null } | null } | null
 }
 
-export interface Rule { match: string; category: string | null; flow_override: FlowOverride | null }
+export type Rule = CategorizationRule
 
 export interface CategorizeResult {
   id: string
@@ -161,13 +162,11 @@ Respond ONLY with JSON: {"items":[{"index":1,"category":"Food & Dining","country
 /* ------------------------------------------------------------------ */
 
 export async function categorize(rows: CategorizeInput[], rules: Rule[]): Promise<{ results: CategorizeResult[]; llmUsed: number }> {
-  const sortedRules = [...rules].sort((a, b) => b.match.length - a.match.length)
   const results: CategorizeResult[] = []
   const forLlm: CategorizeInput[] = []
 
   for (const t of rows) {
-    const text = `${t.merchant_name ?? ""} ${t.description}`.toLowerCase()
-    const rule = sortedRules.find((r) => text.includes(r.match.toLowerCase()))
+    const rule = findRule(rules, t)
     const zelle = isZelle(t)
 
     if (rule) {
@@ -191,31 +190,35 @@ export async function categorize(rows: CategorizeInput[], rules: Rule[]): Promis
     forLlm.push(t)
   }
 
-  const BATCH = 15
-  for (let i = 0; i < forLlm.length; i += BATCH) {
-    const batch = forLlm.slice(i, i + BATCH)
-    let items: LlmItem[] = []
-    try {
-      items = await llmBatch(batch)
-    } catch (e) {
-      console.warn("LLM categorization unavailable, using Plaid categories:", e instanceof Error ? e.message : e)
-    }
-    const byIndex = new Map(items.map((it) => [it.index, it]))
-    batch.forEach((t, idx) => {
-      const it = byIndex.get(idx + 1)
-      const valid = it && (LLM_CATEGORIES as readonly string[]).includes(it.category)
-      if (valid) {
-        results.push({
-          id: t.id,
-          category: it.category,
-          category_source: "llm",
-          ...(!t.city && it.city ? { city: it.city } : {}),
-          ...(!t.country && it.country ? { country: it.country } : {}),
-        })
-      } else {
-        results.push({ id: t.id, category: mapPlaidCategory(t)?.category ?? "Other", category_source: "plaid" })
+  // Batches run 4 at a time — ~4x faster than one-by-one, still gentle on rate limits
+  const BATCH = 20
+  const batches: CategorizeInput[][] = []
+  for (let i = 0; i < forLlm.length; i += BATCH) batches.push(forLlm.slice(i, i + BATCH))
+  const CONCURRENCY = 4
+  for (let i = 0; i < batches.length; i += CONCURRENCY) {
+    await Promise.all(batches.slice(i, i + CONCURRENCY).map(async (batch) => {
+      let items: LlmItem[] = []
+      try {
+        items = await llmBatch(batch)
+      } catch (e) {
+        console.warn("LLM categorization unavailable, using Plaid categories:", e instanceof Error ? e.message : e)
       }
-    })
+      const byIndex = new Map(items.map((it) => [it.index, it]))
+      batch.forEach((t, idx) => {
+        const it = byIndex.get(idx + 1)
+        if (it && (LLM_CATEGORIES as readonly string[]).includes(it.category)) {
+          results.push({
+            id: t.id,
+            category: it.category,
+            category_source: "llm",
+            ...(!t.city && it.city ? { city: it.city } : {}),
+            ...(!t.country && it.country ? { country: it.country } : {}),
+          })
+        } else {
+          results.push({ id: t.id, category: mapPlaidCategory(t)?.category ?? "Other", category_source: "plaid" })
+        }
+      })
+    }))
   }
 
   return { results, llmUsed: forLlm.length }

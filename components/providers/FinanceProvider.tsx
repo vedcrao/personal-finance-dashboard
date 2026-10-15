@@ -46,6 +46,8 @@ interface FinanceContextValue {
   /** Pull new transactions from Plaid, then AI-categorize them. */
   syncAndCategorize: () => Promise<void>
   syncing: string | null
+  /** Re-apply rules / Plaid / AI to everything not edited by hand (chunked, resumable) */
+  recategorizeAll: () => Promise<void>
   sendDigest: () => Promise<void>
   sendingDigest: boolean
   hidden: boolean
@@ -151,15 +153,42 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     setTransactions((list) => list.map((t) => (t.id === id ? { ...t, ...patch } : t)))
   }, [])
 
+  /** Runs time-boxed categorization chunks until nothing is left (each server call is ~40s max). */
+  const runCategorization = useCallback(async (mode: "uncategorized" | "all") => {
+    let since: string | undefined
+    let total = 0
+    let llm = 0
+    for (let i = 0; i < 50; i++) {
+      const r = await getJson<{ categorized: number; llmUsed: number; remaining: number; since: string }>("/api/ai/categorize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, since }),
+      })
+      since = r.since
+      total += r.categorized
+      llm += r.llmUsed
+      if (r.remaining === 0 || r.categorized === 0) break
+      setSyncing(`Categorizing… ${r.remaining} left`)
+    }
+    return { categorized: total, llmUsed: llm }
+  }, [])
+
   const syncAndCategorize = useCallback(async () => {
     try {
       setSyncing("Syncing with your banks…")
-      const sync = await getJson<{ synced: number; removed: number; categorized: number; llmUsed: number; warning?: string }>("/api/plaid/sync", { method: "POST" })
+      const sync = await getJson<{ synced: number; removed: number; categorized: number; llmUsed: number; remaining: number; warning?: string }>("/api/plaid/sync", { method: "POST" })
+      let { categorized, llmUsed } = sync
+      if (sync.remaining > 0) {
+        setSyncing(`Categorizing… ${sync.remaining} left`)
+        const more = await runCategorization("uncategorized")
+        categorized += more.categorized
+        llmUsed += more.llmUsed
+      }
       await load()
-      const ai = sync.llmUsed ? ` (${sync.llmUsed} needed AI)` : ""
+      const ai = llmUsed ? ` (${llmUsed} needed AI)` : ""
       notify(
-        sync.synced || sync.removed
-          ? `${sync.synced} new/updated · ${sync.removed} removed · ${sync.categorized} categorized${ai}`
+        sync.synced || sync.removed || categorized
+          ? `${sync.synced} new/updated · ${sync.removed} removed · ${categorized} categorized${ai}`
           : "Already up to date"
       )
       if (sync.warning) notify(sync.warning, "error")
@@ -168,7 +197,20 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     } finally {
       setSyncing(null)
     }
-  }, [load, notify])
+  }, [load, notify, runCategorization])
+
+  const recategorizeAll = useCallback(async () => {
+    try {
+      setSyncing("Re-categorizing…")
+      const r = await runCategorization("all")
+      await load()
+      notify(`Re-categorized ${r.categorized} transactions · ${r.llmUsed} needed AI`)
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Re-categorize failed", "error")
+    } finally {
+      setSyncing(null)
+    }
+  }, [load, notify, runCategorization])
 
   const sendDigest = useCallback(async () => {
     setSendingDigest(true)
@@ -186,11 +228,11 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     () => ({
       accounts, transactions, liabilities, loading, error, lastUpdated,
       hasData: accounts.length > 0,
-      refresh, syncAndCategorize, syncing, sendDigest, sendingDigest,
+      refresh, syncAndCategorize, syncing, recategorizeAll, sendDigest, sendingDigest,
       hidden, toggleHidden: () => setPrivacy(!hidden), notify,
       updateTransaction, editing, editTransaction: setEditing,
     }),
-    [accounts, transactions, liabilities, loading, error, lastUpdated, refresh, syncAndCategorize, syncing, sendDigest, sendingDigest, hidden, notify, updateTransaction, editing]
+    [accounts, transactions, liabilities, loading, error, lastUpdated, refresh, syncAndCategorize, syncing, recategorizeAll, sendDigest, sendingDigest, hidden, notify, updateTransaction, editing]
   )
 
   return (

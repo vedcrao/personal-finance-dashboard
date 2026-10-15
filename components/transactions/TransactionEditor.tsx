@@ -29,7 +29,10 @@ export function TransactionEditorHost() {
 }
 
 function TransactionEditor({ t, onClose }: { t: Transaction; onClose: () => void }) {
-  const { accounts, updateTransaction, refresh, notify } = useFinance()
+  const { accounts, transactions, updateTransaction, refresh, notify } = useFinance()
+  const builtIn = new Set<string>(CATEGORIES)
+  const custom = [...new Set(transactions.map((x) => x.category).filter((c): c is string => !!c && !builtIn.has(c)))].sort()
+  const [newCat, setNewCat] = useState("")
   const account = accounts.find((a) => a.id === t.account_id)
 
   const [category, setCategory] = useState<string | null>(t.category)
@@ -127,7 +130,7 @@ function TransactionEditor({ t, onClose }: { t: Transaction; onClose: () => void
 
       <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">Category</p>
       <div className="mb-5 flex flex-wrap gap-1.5">
-        {CATEGORIES.map((c) => {
+        {[...CATEGORIES, ...custom].map((c) => {
           const s = categoryStyle(c)
           const active = category === c
           return (
@@ -143,6 +146,19 @@ function TransactionEditor({ t, onClose }: { t: Transaction; onClose: () => void
             </button>
           )
         })}
+      </div>
+
+      <div className="-mt-3 mb-5 flex items-center gap-2">
+        <input
+          value={newCat}
+          onChange={(e) => setNewCat(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && newCat.trim()) { e.preventDefault(); setCategory(newCat.trim()); setNewCat("") } }}
+          placeholder="+ New category (e.g. Gym)"
+          maxLength={40}
+          className="h-8 w-56 rounded-full border border-white/10 bg-surface-container-lowest px-3 text-xs outline-none placeholder:text-slate-500 focus:border-indigo-brand"
+        />
+        {newCat.trim() && <button type="button" onClick={() => { setCategory(newCat.trim()); setNewCat("") }} className="text-xs font-semibold text-secondary">Use</button>}
+        {category && ![...CATEGORIES, ...custom].includes(category) && <Badge tone="primary">New: {category}</Badge>}
       </div>
 
       <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-surface-container-low p-3">

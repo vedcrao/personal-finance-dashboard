@@ -12,6 +12,7 @@ export const NAV: NavItem[] = [
   { href: "/cards", label: "Cards", icon: "credit_card", title: "Credit & Cards", subtitle: "Utilization, statements and payments due" },
   { href: "/investments", label: "Invest", icon: "monitoring", title: "Investment Portfolio", subtitle: "Performance, allocation and holdings" },
   { href: "/transactions", label: "Transactions", icon: "receipt_long", title: "Transactions", subtitle: "Every transaction, filterable by period, category and place" },
+  { href: "/assistant", label: "Assistant", icon: "auto_awesome", title: "Assistant & Rules", subtitle: "Describe how to sort your money in plain English" },
 ]
 
 export const SECONDARY_NAV: NavItem[] = [

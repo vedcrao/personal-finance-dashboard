@@ -51,6 +51,8 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
   const [location, setLocation] = useState<string | null>(null)
   const [query, setQuery] = useState("")
   const [showLocation, setShowLocation] = useState(false)
+  // The full list only opens once you pick something: keeps the page calm
+  const [showAll, setShowAll] = useState(!!initial.account)
 
   const scoped = useMemo(() => (accountId ? transactions.filter((t) => t.account_id === accountId) : transactions), [transactions, accountId])
 
@@ -80,6 +82,7 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
   const locations = [...locationTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
 
   const q = query.trim().toLowerCase()
+  const listOpen = showAll || !!category || !!location || !!q || !!accountId
   const filtered = periodTxns.filter((t) => {
     if (category && (t.category ?? "Uncategorized") !== category) return false
     if (location && formatLocation(t) !== location) return false
@@ -262,11 +265,22 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
           {category === "Zelle" && <ZelleSummary transactions={periodTxns} />}
 
           {/* Table */}
+          {/* listOpen: All / category / card / place / search picked */}
           <Panel
             padded={false}
-            title={<div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Transactions</h2><Badge>{filtered.length}</Badge></div>}
+            title={<div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Transactions</h2>{listOpen && <Badge>{filtered.length}</Badge>}</div>}
             action={
               <div className="flex items-center gap-2">
+                {listOpen && (
+                  <button type="button" onClick={() => { setShowAll(false); setCategory(null); setLocation(null); setQuery(""); setAccountId(null) }}
+                    className="text-xs font-semibold text-on-surface-variant hover:text-on-surface">Close list</button>
+                )}
+                {accountId && account && (
+                  <button type="button" onClick={() => setAccountId(null)} aria-label="Clear account filter"
+                    className="inline-flex items-center gap-1 rounded-full bg-secondary/10 px-2.5 py-1 text-xs font-semibold text-secondary">
+                    {account.name} <Icon name="close" size={14} />
+                  </button>
+                )}
                 {[
                   { v: category, clear: () => setCategory(null), cls: "bg-primary/10 text-primary" },
                   { v: location, clear: () => setLocation(null), cls: "bg-fuchsia-500/10 text-fuchsia-300" },
@@ -285,7 +299,56 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
               </div>
             }
           >
-            {loading && !transactions.length ? (
+            {!listOpen ? (
+              <div className="flex flex-col gap-5 px-6 py-6">
+                <button type="button" onClick={() => setShowAll(true)}
+                  className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-left transition-colors hover:bg-white/[0.06]">
+                  <span className="flex items-center gap-3">
+                    <Icon name="receipt_long" size={20} className="text-primary" />
+                    <span>
+                      <span className="block text-sm font-semibold">All transactions</span>
+                      <span className="text-xs text-on-surface-variant">{periodTxns.length} in this period</span>
+                    </span>
+                  </span>
+                  <Icon name="chevron_right" className="text-on-surface-variant" />
+                </button>
+                {accounts.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">By card or account</p>
+                    <div className="flex flex-wrap gap-2">
+                      {ACCOUNT_TYPE_ORDER.flatMap((type) => accounts.filter((a) => a.type === type && a.type !== "investment")).map((a) => {
+                        const n = transactions.filter((t) => t.account_id === a.id && inPeriod(t.date)).length
+                        if (!n) return null
+                        return (
+                          <button key={a.id} type="button" onClick={() => { setAccountId(a.id); setViewMode("month") }}
+                            className="inline-flex items-center gap-2 rounded-full bg-surface-container-high px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-surface-bright">
+                            <Icon name={a.type === "credit" ? "credit_card" : "account_balance"} size={14} className="text-secondary" />
+                            {a.name}{a.mask ? ` ••${a.mask}` : ""}
+                            <span className="text-on-surface-variant">{n}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+                {cats.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">By category</p>
+                    <div className="flex flex-wrap gap-2">
+                      {cats.map((c) => {
+                        const st = categoryStyle(c.category)
+                        return (
+                          <button key={c.category} type="button" onClick={() => setCategory(c.category)}
+                            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-80 ${st.bg} ${st.text}`}>
+                            <Icon name={st.icon} size={14} /> {c.category} <span className="opacity-70">{c.count}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : loading && !transactions.length ? (
               <p className="px-6 py-10 text-center text-sm text-on-surface-variant">Loading…</p>
             ) : filtered.length === 0 ? (
               <EmptyState icon="receipt_long" title="No transactions for this period" />

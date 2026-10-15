@@ -31,50 +31,80 @@ function plaidErrorCode(e: unknown): string | undefined {
 /* Categorization (shared by sync, the categorize route and webhooks)  */
 /* ------------------------------------------------------------------ */
 
-async function fetchAll<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>) {
-  const out: T[] = []
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await build(from, from + 999)
-    if (error) throw Object.assign(new Error(error.message), { code: error.code })
-    out.push(...(data ?? []))
-    if (!data || data.length < 1000) return out
-  }
+export const RULES_MIGRATION_HINT =
+  "Run supabase/migrations/20261016_rules_v2.sql in the Supabase SQL editor to enable smart rules."
+
+export async function loadRules(): Promise<Rule[]> {
+  const { data, error } = await supabaseAdmin.from("categorization_rules").select("*").eq("user_id", TEST_USER_ID)
+  if (isMissingSchema(error)) throw new Error(AUTOMATION_MIGRATION_HINT)
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Rule[]
+}
+
+export interface CategorizeProgress {
+  categorized: number
+  llmUsed: number
+  /** Rows still waiting; call again (passing `since`) until 0 */
+  remaining: number
+  /** Run id for mode "all" — rows stamped before this get re-processed */
+  since: string
 }
 
 /**
- * mode "uncategorized" — only rows without a category (after a sync)
- * mode "all"           — re-run everything except rows you edited by hand
+ * Resumable, time-boxed categorization so no single request can time out.
+ *   mode "uncategorized" — rows without a category (after a sync)
+ *   mode "all"           — everything you haven't edited by hand; pass the returned
+ *                          `since` back on each follow-up call to continue the same run
  */
-export async function applyCategorization(mode: "uncategorized" | "all" = "uncategorized") {
-  const { data: rules, error: rulesErr } = await supabaseAdmin
-    .from("categorization_rules")
-    .select("match, category, flow_override")
-    .eq("user_id", TEST_USER_ID)
-  if (isMissingSchema(rulesErr)) throw new Error(AUTOMATION_MIGRATION_HINT)
+export async function applyCategorization(
+  mode: "uncategorized" | "all" = "uncategorized",
+  opts: { since?: string; budgetMs?: number; chunk?: number } = {}
+): Promise<CategorizeProgress> {
+  const since = opts.since ?? new Date().toISOString()
+  const budget = opts.budgetMs ?? 40_000
+  const chunk = opts.chunk ?? 200
+  const started = Date.now()
+  const rules = await loadRules()
 
-  const rows = await fetchAll<CategorizeInput>((from, to) => {
+  const pending = (select: string, head = false) => {
     let q = supabaseAdmin
       .from("transactions")
-      .select("id, description, merchant_name, amount, city, country, raw_data")
+      .select(select, head ? { count: "exact", head: true } : undefined)
       .eq("user_id", TEST_USER_ID)
-    q = mode === "uncategorized" ? q.is("category", null) : q.or("category_source.is.null,category_source.neq.user")
-    return q.order("id").range(from, to)
-  })
-  if (!rows.length) return { categorized: 0, llmUsed: 0 }
-
-  const { results, llmUsed } = await categorize(rows, (rules ?? []) as Rule[])
-
-  for (let i = 0; i < results.length; i += 50) {
-    await Promise.all(
-      results.slice(i, i + 50).map(({ id, ...r }) =>
-        supabaseAdmin
-          .from("transactions")
-          .update({ ...r, flow_override: r.flow_override ?? null })
-          .eq("id", id)
-      )
-    )
+    if (mode === "uncategorized") q = q.is("category", null)
+    // (not hand-edited) AND (not yet processed in this run)
+    else q = q.or(`and(or(category_source.is.null,category_source.neq.user),or(categorized_at.is.null,categorized_at.lt."${since}"))`)
+    return q
   }
-  return { categorized: results.length, llmUsed }
+
+  let categorized = 0
+  let llmUsed = 0
+  while (Date.now() - started < budget) {
+    const { data, error } = await pending("id, description, merchant_name, amount, city, country, raw_data").order("id").limit(chunk)
+    if (isMissingSchema(error)) throw new Error(RULES_MIGRATION_HINT)
+    if (error) throw new Error(error.message)
+    const rows = (data ?? []) as unknown as CategorizeInput[]
+    if (!rows.length) break
+
+    const out = await categorize(rows, rules)
+    const now = new Date().toISOString()
+    for (let i = 0; i < out.results.length; i += 50) {
+      const res = await Promise.all(
+        out.results.slice(i, i + 50).map(({ id, ...r }) =>
+          supabaseAdmin.from("transactions").update({ ...r, flow_override: r.flow_override ?? null, categorized_at: now }).eq("id", id)
+        )
+      )
+      const failed = res.find((r) => r.error)?.error
+      if (isMissingSchema(failed)) throw new Error(RULES_MIGRATION_HINT)
+      if (failed) throw new Error(failed.message)
+    }
+    categorized += out.results.length
+    llmUsed += out.llmUsed
+    if (rows.length < chunk) break
+  }
+
+  const { count } = await pending("id", true)
+  return { categorized, llmUsed, remaining: count ?? 0, since }
 }
 
 /* ------------------------------------------------------------------ */
@@ -195,16 +225,17 @@ async function loadItems(itemId?: string): Promise<ItemRow[]> {
 }
 
 /** Sync one Item (webhook) or all Items (button / cron), then categorize what's new. */
-export async function syncAndCategorize(itemId?: string) {
+export async function syncAndCategorize(itemId?: string, opts: { budgetMs?: number } = {}) {
   const items = await loadItems(itemId)
   const results: ItemSyncResult[] = []
   for (const item of items) results.push(await syncItem(item))
-  const cat = await applyCategorization("uncategorized")
+  const cat = await applyCategorization("uncategorized", { budgetMs: opts.budgetMs ?? 25_000 })
   return {
     items: results,
     synced: results.reduce((s, r) => s + r.added + r.modified, 0),
     removed: results.reduce((s, r) => s + r.removed, 0),
     categorized: cat.categorized,
     llmUsed: cat.llmUsed,
+    remaining: cat.remaining,
   }
 }

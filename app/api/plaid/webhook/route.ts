@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server"
 import { verifyPlaidWebhook } from "@/lib/plaid-webhook"
-import { syncAndCategorize } from "@/lib/sync"
+import { applyCategorization, syncAndCategorize } from "@/lib/sync"
 import { supabaseAdmin } from "@/lib/supabase-server"
 
 export const maxDuration = 60
@@ -31,8 +31,11 @@ export async function POST(request: Request) {
     if (code === "SYNC_UPDATES_AVAILABLE") {
       after(async () => {
         try {
-          const r = await syncAndCategorize(itemId)
-          console.log(`Webhook sync: +${r.synced} / -${r.removed}, ${r.categorized} categorized`)
+          const r = await syncAndCategorize(itemId, { budgetMs: 20_000 })
+          // Finish categorizing within this invocation if there's time; cron / next sync picks up the rest
+          let remaining = r.remaining
+          if (remaining > 0) remaining = (await applyCategorization("uncategorized", { budgetMs: 20_000 })).remaining
+          console.log(`Webhook sync: +${r.synced} / -${r.removed}, ${r.categorized} categorized, ${remaining} left`)
         } catch (e) {
           console.error("Webhook sync failed:", e instanceof Error ? e.message : e)
         }
