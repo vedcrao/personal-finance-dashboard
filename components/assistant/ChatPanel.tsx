@@ -28,7 +28,10 @@ export function ChatPanel({ onRulesChanged }: { onRulesChanged: () => void }) {
   const [busy, setBusy] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), [messages, busy])
+  // Braces matter: newer Chrome returns a Promise from scrollIntoView, and an effect must not return one
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  }, [messages, busy])
 
   async function send(text: string) {
     const content = text.trim()
