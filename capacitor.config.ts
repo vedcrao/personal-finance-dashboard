@@ -32,7 +32,10 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchAutoHide: false, // hidden by the web app once it has rendered
+      // Safety net: never stay up longer than this, even if the page fails to load.
+      // Normally SplashHider (app/layout.tsx) hides it sooner, once the first page renders.
+      launchAutoHide: true,
+      launchShowDuration: 3000,
       backgroundColor: "#0a0f1d",
       showSpinner: false,
     },

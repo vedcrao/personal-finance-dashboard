@@ -16,9 +16,11 @@ interface Props {
   /** Link each category to the filtered transactions page */
   linkMonth?: string
   accountId?: string
+  /** Replaces the default "All transactions" link (e.g. a "Back to week" chip) */
+  action?: React.ReactNode
 }
 
-export function CategoryBreakdown({ transactions, title = "Breakdown by Category", limit = 6, linkMonth, accountId }: Props) {
+export function CategoryBreakdown({ transactions, title = "Breakdown by Category", limit = 6, linkMonth, accountId, action }: Props) {
   const cats = categoryBreakdown(transactions).slice(0, limit)
 
   return (
@@ -27,7 +29,7 @@ export function CategoryBreakdown({ transactions, title = "Breakdown by Category
       icon="donut_large"
       iconClass="text-primary"
       className="h-full"
-      action={<Link href="/transactions" className="text-xs font-semibold text-primary hover:underline">All transactions</Link>}
+      action={action ?? <Link href="/transactions" className="text-xs font-semibold text-primary hover:underline">All transactions</Link>}
     >
       {cats.length === 0 ? (
         <EmptyState icon="donut_large" title="No spending in this period" />

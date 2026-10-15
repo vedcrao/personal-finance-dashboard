@@ -13,14 +13,13 @@ import { ZelleSummary } from "./ZelleSummary"
 import { TransactionItem } from "./TransactionItem"
 import {
   ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_ORDER, categoryBreakdown, categoryStyle, formatLocation, getBillingPeriods,
-  flowOf, getRecentMonths, isSpend, spendAmount, ymd, type Flow,
+  flowLabel, flowOf, getRecentMonths, isMatchedRefund, isSpend, spendAmount, ymd, type Flow,
 } from "@/lib/finance"
 import { shortDate } from "@/lib/format"
 import type { Transaction } from "@/lib/types"
 
 const MONTHS = getRecentMonths(6)
 
-const FLOW_SHORT: Record<Flow, string> = { income: "Income", expense: "Expense", reimbursement: "Reimbursed", transfer: "Ignored" }
 const FLOW_PILL: Record<Flow, string> = {
   income: "bg-tertiary/10 text-tertiary",
   expense: "bg-rose-500/10 text-rose-300",
@@ -117,12 +116,12 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
               { value: "recurring", label: "Recurring" },
             ]}
           />
-          <label className="relative">
+          <label className="relative w-full md:w-auto">
             <span className="sr-only">Account</span>
             <select
               value={accountId ?? ""}
               onChange={(e) => { setAccountId(e.target.value || null); setViewMode("month") }}
-              className="h-10 appearance-none rounded-full border border-white/[0.08] bg-white/[0.04] pr-9 pl-4 text-sm font-semibold outline-none focus:border-indigo-brand"
+              className="h-10 w-full max-w-full appearance-none truncate rounded-full border border-white/[0.08] bg-white/[0.04] pr-9 pl-4 text-sm font-semibold outline-none focus:border-indigo-brand md:w-auto md:max-w-xs"
             >
               <option value="">All accounts</option>
               {ACCOUNT_TYPE_ORDER.map((type) => {
@@ -184,11 +183,11 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
               { label: "Top category", node: <span className="truncate">{topCategory?.category ?? "—"}</span>, sub: topCategory ? <Money value={topCategory.amount} /> : "", icon: topCategory ? categoryStyle(topCategory.category).icon : "category", cls: "bg-amber-500/10 text-amber-300" },
               { label: "Flagged", node: <span>{periodTxns.filter((t) => t.is_anomaly).length}</span>, sub: "unusual transactions", icon: "gpp_maybe", cls: "bg-error-container/30 text-error" },
             ].map((c) => (
-              <div key={c.label} className="glass flex items-start gap-3 rounded-2xl p-5">
-                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${c.cls}`}><Icon name={c.icon} size={20} /></div>
+              <div key={c.label} className="glass flex items-start gap-3 rounded-2xl p-4 md:p-5">
+                <div className={`hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl md:flex ${c.cls}`}><Icon name={c.icon} size={20} /></div>
                 <div className="min-w-0">
                   <p className="text-xs text-on-surface-variant">{c.label}</p>
-                  <p className="truncate text-xl font-bold tracking-tight">{c.node}</p>
+                  <p className="truncate text-lg font-bold tracking-tight md:text-xl">{c.node}</p>
                   <p className="truncate text-[11px] text-on-surface-variant">{c.sub}</p>
                 </div>
               </div>
@@ -421,8 +420,8 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
                               </td>
                               <td className="px-4 py-3">
                                 <button type="button" onClick={() => editTransaction(t)} title="Change how this counts"
-                                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition-opacity hover:opacity-80 ${FLOW_PILL[flowOf(t)]}`}>
-                                  {FLOW_SHORT[flowOf(t)]}{t.flow_override && <Icon name="edit" size={11} />}
+                                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition-opacity hover:opacity-80 ${isMatchedRefund(t) ? "bg-amber-500/10 text-amber-300" : FLOW_PILL[flowOf(t)]}`}>
+                                  {flowLabel(t)}{t.flow_override && !isMatchedRefund(t) && <Icon name="edit" size={11} />}
                                 </button>
                               </td>
                               <td className={`px-6 py-3 text-right font-semibold ${t.amount < 0 ? "text-tertiary" : ""}`}>

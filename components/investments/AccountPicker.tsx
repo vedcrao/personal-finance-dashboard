@@ -46,6 +46,7 @@ export function AccountPicker({ options, value, onChange }: { options: PickerOpt
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
+        aria-label={`Choose account (current: ${current.name})`}
         aria-expanded={open}
         className="glass flex w-full items-center justify-between gap-4 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-surface-container-high/60"
       >

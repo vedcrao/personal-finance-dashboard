@@ -19,14 +19,35 @@ export type Flow = "income" | "expense" | "reimbursement" | "transfer"
  *   1. your explicit choice (flow_override)
  *   2. category "Transfer" → transfer; "Zelle" → income if money in, expense if money out
  *   3. keyword fallback for transfers
- *   4. sign: money in = income, money out = expense
+ *   4. money back from a store (negative amount in a spending category) = refund → reduces spending
+ *   5. sign: money in = income, money out = expense
  */
 export function flowOf(t: Transaction): Flow {
   if (t.flow_override) return t.flow_override
   if (t.category === "Transfer") return "transfer"
   if (t.category === "Zelle") return t.amount < 0 ? "income" : "expense"
   if (t.category !== "Income" && TRANSFER_KEYWORDS.some((k) => t.description.toLowerCase().includes(k))) return "transfer"
-  return t.amount < 0 ? "income" : "expense"
+  if (t.amount < 0) return isRefundCategory(t.category) ? "reimbursement" : "income"
+  return "expense"
+}
+
+/** Categories where money coming back means a refund/return, not income. */
+const NOT_REFUND = new Set(["Income", "Zelle", "Transfer", "Debt Payments", "Other", "Uncategorized"])
+export function isRefundCategory(category: string | null): boolean {
+  return !!category && !NOT_REFUND.has(category)
+}
+
+/** Short label for how a transaction counts (tables, lists). */
+export function flowLabel(t: Transaction): string {
+  if (isMatchedRefund(t)) return "Refunded"
+  const f = flowOf(t)
+  if (f === "reimbursement") return t.amount < 0 && !t.flow_override && isRefundCategory(t.category) ? "Refund" : "Reimbursed"
+  return { income: "Income", expense: "Expense", transfer: "Ignored" }[f]
+}
+
+/** A purchase + its refund that were paired and cancel out (both show as "Refunded", count as $0). */
+export function isMatchedRefund(t: Transaction): boolean {
+  return t.category_source === "refund_match"
 }
 
 export function isTransfer(t: Transaction): boolean {
@@ -373,3 +394,35 @@ export const SECURITY_TYPE_LABELS: Record<string, string> = {
 }
 
 export const ALLOCATION_COLORS = ["bg-primary-container", "bg-secondary", "bg-tertiary", "bg-amber-400", "bg-rose-400", "bg-sky-400", "bg-outline"]
+
+/* ------------------------------------------------------------------ */
+/* Card networks                                                       */
+/* ------------------------------------------------------------------ */
+
+export type CardNetwork = "visa" | "mastercard" | "amex" | "discover" | null
+
+/**
+ * Plaid doesn't report the card network, so infer it from the product name / issuer.
+ * Returns null when unsure (no logo beats a wrong logo).
+ */
+export function cardNetwork(a: { name: string; institution_name: string }): CardNetwork {
+  const s = `${a.name} ${a.institution_name}`.toLowerCase()
+  if (/american express|\bamex\b/.test(s)) return "amex"
+  if (/\bdiscover\b/.test(s)) return "discover"
+  if (/\bvisa\b/.test(s)) return "visa"
+  if (/mastercard|master card|world elite/.test(s)) return "mastercard"
+  // Well-known products whose names don't include the network
+  if (/autograph|active cash|reflect|sapphire|freedom|venture|quicksilver|savor/.test(s)) {
+    return /venture|quicksilver|savor/.test(s) ? null : "visa"
+  }
+  return null
+}
+
+/** Clean bank-provided account names: drop mojibake (VISA��) and trailing "...1234". */
+export function cleanAccountName(name: string): string {
+  return name
+    .replace(/[\uFFFD\u0080-\u009F]/g, "")
+    .replace(/\s*\.{2,}\s*\d{2,}\s*$/, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+}

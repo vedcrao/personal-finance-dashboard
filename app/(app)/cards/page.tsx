@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useFinance } from "@/components/providers/FinanceProvider"
-import { CreditCardVisual, CARD_THEMES } from "@/components/cards/CreditCardVisual"
+import { CreditCardVisual, CARD_THEMES, NetworkLogo } from "@/components/cards/CreditCardVisual"
 import { PaymentDue } from "@/components/cards/PaymentDue"
 import { CardSettings } from "@/components/cards/CardSettings"
 import { CategoryBreakdown } from "@/components/overview/CategoryBreakdown"
@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/Badge"
 import { Money } from "@/components/ui/Money"
 import { ProgressBar } from "@/components/ui/ProgressBar"
 import { EmptyState } from "@/components/ui/States"
-import { currentMonthRange, currentStatementPeriod, inRange, sumSpend, utilization } from "@/lib/finance"
+import { cardNetwork, currentMonthRange, currentStatementPeriod, inRange, sumSpend, utilization } from "@/lib/finance"
 import { shortDate } from "@/lib/format"
 
 export default function CardsPage() {
@@ -117,7 +117,10 @@ export default function CardsPage() {
                   className={`flex flex-col rounded-xl p-3 text-left transition-all ${active ? "bg-surface-container-high ring-1 ring-white/10" : "bg-surface-container-low opacity-75 hover:opacity-100"}`}
                 >
                   <div className="flex w-full items-center justify-between gap-2">
-                    <span className={`truncate text-[11px] font-semibold ${CARD_THEMES[i % CARD_THEMES.length].accent}`}>{c.name}</span>
+                    <span className={`flex min-w-0 items-center gap-1.5 truncate text-[11px] font-semibold ${CARD_THEMES[i % CARD_THEMES.length].accent}`}>
+                      <span className="shrink-0 pr-0.5"><NetworkLogo network={cardNetwork(c)} small /></span>
+                      <span className="truncate">{c.name}</span>
+                    </span>
                     {u !== null && <span className={`text-[11px] font-semibold ${u < 30 ? "text-tertiary" : "text-error"}`}>{u.toFixed(1)}%</span>}
                   </div>
                   <Money value={c.current_balance ?? 0} className="mt-0.5 text-sm font-semibold" />

@@ -84,7 +84,7 @@ export default function AccountsPage() {
               { label: "Interest this month", value: [...interestByAccount.values()].reduce((s, v) => s + v, 0), icon: "auto_graph", cls: "bg-primary/10 text-primary", vcls: "text-primary" },
             ].map((s) => (
               <div key={s.label} className="flex items-center gap-3">
-                <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${s.cls}`}><Icon name={s.icon} size={18} /></div>
+                <div className={`hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg md:flex ${s.cls}`}><Icon name={s.icon} size={18} /></div>
                 <div className="min-w-0">
                   <p className="text-xs text-on-surface-variant">{s.label}</p>
                   <Money value={s.value} className={`block truncate text-sm font-semibold ${s.vcls}`} />

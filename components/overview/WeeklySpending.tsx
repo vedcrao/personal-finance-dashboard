@@ -15,9 +15,12 @@ import type { UserSettings } from "@/lib/types"
 interface Props {
   weekOffset: number
   onWeekChange: (offset: number) => void
+  /** Day the user tapped (YYYY-MM-DD); filters the rest of the page. null = whole week */
+  selectedDay: string | null
+  onSelectDay: (day: string | null) => void
 }
 
-export function WeeklySpending({ weekOffset, onWeekChange }: Props) {
+export function WeeklySpending({ weekOffset, onWeekChange, selectedDay, onSelectDay }: Props) {
   const { transactions, hidden, notify } = useFinance()
   const settings = useApi<{ settings: UserSettings }>("/api/settings")
   const budget = settings.data?.settings.weekly_budget ?? null
@@ -29,7 +32,9 @@ export function WeeklySpending({ weekOffset, onWeekChange }: Props) {
   const max = Math.max(...days.map((d) => d.total), 1)
   const todayStr = ymd(new Date())
 
-  const [selected, setSelected] = useState<string | null>(null)
+  const selected = selectedDay
+  const setSelected = onSelectDay
+  // Highlight the tapped day; with nothing tapped, just point out the peak (no filtering)
   const sel = days.find((d) => d.date === selected) ?? (peak.total > 0 ? peak : null)
   const selCats = sel ? categoryBreakdown(sel.txns).slice(0, 2).map((c) => c.category).join(" & ") : ""
 
@@ -147,7 +152,7 @@ export function WeeklySpending({ weekOffset, onWeekChange }: Props) {
                   key={d.date}
                   type="button"
                   disabled={future}
-                  onClick={() => setSelected(d.date)}
+                  onClick={() => setSelected(selected === d.date ? null : d.date)}
                   aria-label={`${d.label}: ${money(d.total)}`}
                   aria-pressed={isSel}
                   className="group flex h-full flex-1 flex-col items-center justify-end gap-1.5 outline-none disabled:opacity-30"
@@ -170,16 +175,24 @@ export function WeeklySpending({ weekOffset, onWeekChange }: Props) {
               )
             })}
           </div>
-          <p className="pt-1 text-center text-xs text-on-surface-variant">
+          <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 pt-1 text-center text-xs text-on-surface-variant">
             {sel ? (
-              <>
-                Selected: <span className="font-semibold text-secondary">{new Date(sel.date + "T00:00").toLocaleDateString("en-US", { weekday: "long" })}, {hidden ? "••••" : money(sel.total)}</span>
-                {selCats && ` (${selCats})`} · {sel.txns.length} {sel.txns.length === 1 ? "transaction" : "transactions"}
-              </>
+              <span>
+                {selected ? "Showing" : "Peak"}: <span className="font-semibold text-secondary">{new Date(sel.date + "T00:00").toLocaleDateString("en-US", { weekday: "long" })}, {hidden ? "••••" : money(sel.total)}</span>
+                {selCats && ` (${selCats})`} · {sel.txns.length} {sel.txns.length === 1 ? "purchase" : "purchases"}
+              </span>
             ) : (
-              "No spending recorded this week yet."
+              <span>No spending recorded this week yet.</span>
             )}
-          </p>
+            {selected ? (
+              <button type="button" onClick={() => setSelected(null)}
+                className="inline-flex items-center gap-1 rounded-full bg-secondary/10 px-2.5 py-0.5 font-semibold text-secondary hover:bg-secondary/20">
+                <Icon name="close" size={13} /> Back to week
+              </button>
+            ) : (
+              <span className="text-on-surface-variant/70">· Tap a day to filter</span>
+            )}
+          </div>
         </div>
       </div>
     </Panel>

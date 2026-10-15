@@ -50,6 +50,8 @@ export function HoldingsTable({ rows, needsConsent, filterLabel, onClearFilter }
 }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "value", dir: -1 })
   const [group, setGroup] = useState<"account" | "all">("account")
+  // By-account groups collapse; default closed unless there's only one account or a filter is on
+  const [openState, setOpenState] = useState<Record<string, boolean>>({})
   const total = rows.reduce((s, r) => s + r.value, 0)
 
   const data = useMemo(() => {
@@ -75,6 +77,12 @@ export function HoldingsTable({ rows, needsConsent, filterLabel, onClearFilter }
     }
     return [...m.values()].sort((a, b) => b.balance - a.balance)
   }, [data, group, total])
+
+  const defaultOpen = groups.length === 1 || !!filterLabel
+  const isOpen = (id: string) => group === "all" || (openState[id] ?? defaultOpen)
+  const toggle = (id: string) => setOpenState((o) => ({ ...o, [id]: !isOpen(id) }))
+  const allOpen = groups.every((g) => isOpen(g.id))
+  const setAll = (v: boolean) => setOpenState(Object.fromEntries(groups.map((g) => [g.id, v])))
 
   const asOf = rows.map((r) => r.price_as_of).filter(Boolean).sort().pop()
 
@@ -103,8 +111,15 @@ export function HoldingsTable({ rows, needsConsent, filterLabel, onClearFilter }
       iconClass="text-tertiary"
       padded={false}
       action={rows.length > 0 && (
+        <div className="flex items-center gap-3">
+        {group === "account" && groups.length > 1 && (
+          <button type="button" onClick={() => setAll(!allOpen)} className="text-xs font-semibold text-primary hover:underline">
+            {allOpen ? "Collapse all" : "Expand all"}
+          </button>
+        )}
         <SegmentedControl size="sm" ariaLabel="Group holdings" value={group} onChange={setGroup}
           options={[{ value: "account", label: "By account" }, { value: "all", label: "All positions" }]} />
+        </div>
       )}
     >
       {rows.length === 0 ? (
@@ -118,7 +133,51 @@ export function HoldingsTable({ rows, needsConsent, filterLabel, onClearFilter }
             : "Plaid didn't return any positions for these accounts."}
         </EmptyState>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        {/* Phone: one row per position (value + return always visible) */}
+        <div className="md:hidden">
+          {groups.map((g) => {
+            const gg = gainOf(g.rows)
+            return (
+              <div key={g.id}>
+                {group === "account" && (
+                  <button type="button" onClick={() => toggle(g.id)} aria-expanded={isOpen(g.id)}
+                    className="flex w-full items-center justify-between gap-2 border-y border-white/5 bg-surface-container-low/60 px-4 py-3 text-left text-xs font-semibold active:bg-surface-container-high">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <Icon name={isOpen(g.id) ? "expand_more" : "chevron_right"} size={18} className="shrink-0 text-on-surface-variant" />
+                      <span className="truncate">{g.name}</span>
+                      <span className="shrink-0 font-normal text-on-surface-variant">· {g.rows.length}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2"><Money value={g.rows.reduce((s, r) => s + r.value, 0)} cents={false} /><GainCell gain={gg.gain} pct={gg.pct} /></span>
+                  </button>
+                )}
+                {isOpen(g.id) && <ul className="divide-y divide-white/[0.04]">
+                  {g.rows.map((h, i) => (
+                    <li key={`${h.accountId}-${h.symbol ?? h.name}-${i}`} className="flex items-center justify-between gap-3 px-4 py-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-container-highest">
+                          <span className={`text-[10px] font-bold ${SYMBOL_COLORS[i % SYMBOL_COLORS.length]}`}>{(h.symbol ?? h.name.slice(0, 3)).slice(0, 5).toUpperCase()}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{h.symbol ?? h.name}</p>
+                          <p className="truncate text-[11px] text-on-surface-variant">
+                            {h.quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })} sh · {SECURITY_TYPE_LABELS[h.security_type ?? "other"] ?? h.security_type}
+                            {group === "all" && ` · ${h.accountName}`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end">
+                        <Money value={h.value} className="text-sm font-semibold" />
+                        <span className="text-[11px]"><GainCell gain={h.gain} pct={h.gainPct} /></span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>}
+              </div>
+            )
+          })}
+        </div>
+        <div className="overflow-x-auto max-md:hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/5">
@@ -139,12 +198,14 @@ export function HoldingsTable({ rows, needsConsent, filterLabel, onClearFilter }
                 return (
                   <Fragment key={g.id}>
                     {group === "account" && (
-                      <tr className="border-y border-white/5 bg-surface-container-low/60">
+                      <tr onClick={() => toggle(g.id)} aria-expanded={isOpen(g.id)}
+                        className="cursor-pointer border-y border-white/5 bg-surface-container-low/60 transition-colors hover:bg-surface-container-high/60">
                         <td className="px-4 py-2.5" colSpan={3}>
-                          <span className="flex items-center gap-2 text-xs font-semibold">
+                          <button type="button" className="flex items-center gap-2 text-xs font-semibold" aria-label={`${isOpen(g.id) ? "Collapse" : "Expand"} ${g.name}`}>
+                            <Icon name={isOpen(g.id) ? "expand_more" : "chevron_right"} size={18} className="text-on-surface-variant" />
                             <Icon name="work" size={16} className="text-primary" /> {g.name}
-                            <span className="font-normal text-on-surface-variant">· {g.rows.length} positions</span>
-                          </span>
+                            <span className="font-normal text-on-surface-variant">· {g.rows.length} {g.rows.length === 1 ? "position" : "positions"}</span>
+                          </button>
                         </td>
                         <td className="px-4 py-2.5 text-right text-xs font-semibold"><Money value={held} /></td>
                         <td className="px-4 py-2.5" />
@@ -152,7 +213,7 @@ export function HoldingsTable({ rows, needsConsent, filterLabel, onClearFilter }
                         <td className="px-4 py-2.5 text-right text-[11px] text-on-surface-variant">{total ? ((held / total) * 100).toFixed(1) : 0}%</td>
                       </tr>
                     )}
-                    {g.rows.map((h, i) => (
+                    {isOpen(g.id) && g.rows.map((h, i) => (
                       <tr key={`${h.accountId}-${h.symbol ?? h.name}-${i}`} className="border-b border-white/[0.04] transition-colors hover:bg-surface-container-high/40">
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
@@ -191,6 +252,7 @@ export function HoldingsTable({ rows, needsConsent, filterLabel, onClearFilter }
             </tbody>
           </table>
         </div>
+        </>
       )}
     </Panel>
   )

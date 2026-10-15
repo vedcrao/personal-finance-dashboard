@@ -24,7 +24,7 @@ export function NativeBridge() {
       if (cancelled) return
       await StatusBar.setStyle({ style: Style.Dark }).catch(() => {})
       if (Capacitor.getPlatform() === "android") await StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {})
-      await SplashScreen.hide({ fadeOutDuration: 200 }).catch(() => {})
+      await SplashScreen.hide({ fadeOutDuration: 200 }).catch(() => {}) // also done by SplashHider in the root layout
 
       // Coming back to the app (or closing the bank-linking browser) → pull fresh data
       const resume = await App.addListener("resume", () => void refresh())

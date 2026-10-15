@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { requirePlaid, requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
 import { isMissingSchema } from "@/lib/db-errors"
-import { ymd } from "@/lib/finance"
+import { cleanAccountName, ymd } from "@/lib/finance"
 import type { Holding } from "@/lib/types"
 
 const BASE_COLUMNS = "id, name, type, subtype, mask, plaid_item_id, plaid_account_id, billing_cycle_day"
@@ -106,7 +106,7 @@ export async function GET() {
   // transactions, but drop them from balances, net worth and account lists.
   const isClosed = (a: DbAccount) => checkedItems.has(a.plaid_item_id) && !balanceMap.has(a.plaid_account_id)
   const closed_accounts = (data ?? []).filter(isClosed).map((a) => ({
-    id: a.id, name: a.name, type: a.type, subtype: a.subtype, mask: a.mask,
+    id: a.id, name: cleanAccountName(a.name), type: a.type, subtype: a.subtype, mask: a.mask,
     institution_name: itemMap.get(a.plaid_item_id) ?? "Unknown",
   }))
 
@@ -114,7 +114,7 @@ export async function GET() {
     const bal = balanceMap.get(a.plaid_account_id)
     return {
       id: a.id,
-      name: a.name,
+      name: cleanAccountName(a.name),
       type: a.type,
       subtype: a.subtype,
       mask: a.mask,

@@ -1,5 +1,6 @@
 import { Icon } from "@/components/ui/Icon"
 import type { Account } from "@/lib/types"
+import { cardNetwork, type CardNetwork } from "@/lib/finance"
 
 export const CARD_THEMES = [
   { gradient: "from-[#1b2234] via-[#101626] to-[#070b13]", accent: "text-primary", dot: "bg-primary" },
@@ -42,11 +43,34 @@ export function CreditCardVisual({ account, themeIndex }: { account: Account; th
           <p className="text-[10px] uppercase tracking-wider text-on-surface-variant">{account.subtype ?? "Credit card"}</p>
           <p className="truncate text-sm font-semibold uppercase tracking-wide">{account.name}</p>
         </div>
-        <div className="flex items-center -space-x-3 opacity-90">
-          <div className="h-8 w-8 rounded-full bg-[#eb001b]/80" />
-          <div className="h-8 w-8 rounded-full bg-[#f79e1b]/80" />
-        </div>
+        <NetworkLogo network={cardNetwork(account)} />
       </div>
     </div>
   )
+}
+
+/** Network marks drawn with CSS (no trademark image files). Unknown network → nothing. */
+export function NetworkLogo({ network, small }: { network: CardNetwork; small?: boolean }) {
+  if (!network) return null
+  if (network === "mastercard") {
+    const d = small ? "h-4 w-4" : "h-8 w-8"
+    return (
+      <div className={`flex items-center opacity-90 ${small ? "-space-x-1.5" : "-space-x-3"}`} aria-label="Mastercard">
+        <div className={`${d} rounded-full bg-[#eb001b]/85`} />
+        <div className={`${d} rounded-full bg-[#f79e1b]/85`} />
+      </div>
+    )
+  }
+  if (network === "visa") {
+    return <span aria-label="Visa" className={`font-black italic tracking-tight text-white ${small ? "text-xs" : "text-2xl"}`}>VISA</span>
+  }
+  if (network === "amex") {
+    return (
+      <span aria-label="American Express"
+        className={`rounded bg-[#2e77bb] font-black tracking-tighter text-white ${small ? "px-1 py-px text-[8px]" : "px-2 py-1 text-xs"}`}>
+        AMEX
+      </span>
+    )
+  }
+  return <span aria-label="Discover" className={`font-bold uppercase tracking-wide text-orange-300 ${small ? "text-[9px]" : "text-sm"}`}>Discover</span>
 }

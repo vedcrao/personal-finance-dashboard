@@ -16,11 +16,11 @@ import type { FlowOverride, Transaction } from "@/lib/types"
 const FLOW_OPTIONS: { value: Flow; label: string; hint: string; icon: string; cls: string }[] = [
   { value: "income", label: "Income", hint: "Money you earned or received", icon: "south_west", cls: "text-tertiary" },
   { value: "expense", label: "Expense", hint: "Counts toward your spending", icon: "north_east", cls: "text-rose-300" },
-  { value: "reimbursement", label: "Reimbursement", hint: "Someone paying you back. Reduces spending", icon: "undo", cls: "text-secondary" },
+  { value: "reimbursement", label: "Reimbursement / refund", hint: "Money back from a person or store. Reduces spending", icon: "undo", cls: "text-secondary" },
   { value: "transfer", label: "Ignore", hint: "Moving your own money. Not counted", icon: "sync_alt", cls: "text-on-surface-variant" },
 ]
 
-const SOURCE_LABEL: Record<string, string> = { plaid: "Plaid", llm: "AI", rule: "your rule", user: "you", transfer_match: "matching transfer between your accounts" }
+const SOURCE_LABEL: Record<string, string> = { plaid: "Plaid", llm: "AI", rule: "your rule", user: "you", transfer_match: "matching transfer between your accounts", refund_match: "matched refund (purchase + return cancel out)" }
 
 /** Rendered once in the app layout; opened via useFinance().editTransaction(t). */
 export function TransactionEditorHost() {

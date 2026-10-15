@@ -35,7 +35,7 @@ const locked = (t: Row) => t.category_source === "user" || t.category_source ===
 const dayNum = (d: string) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 86_400_000
 
 export function findTransferPairs(rows: Row[]): [Row, Row][] {
-  const candidates = rows.filter((t) => !isP2P(t) && !locked(t) && t.amount !== 0)
+  const candidates = rows.filter((t) => !isP2P(t) && !locked(t) && t.category_source !== "refund_match" && t.amount !== 0)
   const inflows = new Map<string, Row[]>()
   for (const t of candidates) {
     if (t.amount >= 0) continue
@@ -55,7 +55,36 @@ export function findTransferPairs(rows: Row[]): [Row, Row][] {
   return pairs
 }
 
-/** Marks matched pairs as Transfer / ignored. Returns how many transactions changed. */
+/**
+ * Purchase + refund pairs: same account, same merchant, same amount, refund within
+ * 90 days after the purchase (pending or posted). Both are marked "Refunded" and count as
+ * $0, so a bought-then-returned item never shows as spending (or the refund as income).
+ * Refunds with no matching purchase still count as negative spending via flowOf().
+ */
+const REFUND_WINDOW_DAYS = 90
+const merchantKey = (t: Row) => (t.merchant_name ?? t.description).toLowerCase().replace(/[^a-z0-9]/g, "")
+
+export function findRefundPairs(rows: Row[]): [Row, Row][] {
+  const free = rows.filter((t) => !locked(t) && !isP2P(t) && t.category_source !== "transfer_match")
+  const purchases = free.filter((t) => t.amount > 0).sort((a, b) => a.date.localeCompare(b.date))
+  const used = new Set<string>()
+  const pairs: [Row, Row][] = []
+  for (const refund of free.filter((t) => t.amount < 0).sort((a, b) => a.date.localeCompare(b.date))) {
+    const key = merchantKey(refund)
+    const amt = Math.abs(refund.amount).toFixed(2)
+    // Latest matching purchase on or before the refund date
+    const match = purchases
+      .filter((p) => !used.has(p.id) && p.account_id === refund.account_id && p.amount.toFixed(2) === amt && merchantKey(p) === key)
+      .filter((p) => { const d = dayNum(refund.date) - dayNum(p.date); return d >= 0 && d <= REFUND_WINDOW_DAYS })
+      .pop()
+    if (!match) continue
+    used.add(match.id)
+    pairs.push([match, refund])
+  }
+  return pairs
+}
+
+/** Marks matched transfer pairs (ignored) and purchase/refund pairs (refunded). Returns how many changed. */
 export async function markInternalTransfers(userId: string): Promise<number> {
   const rows: Row[] = []
   for (let from = 0; ; from += 1000) {
@@ -70,18 +99,23 @@ export async function markInternalTransfers(userId: string): Promise<number> {
     if (!data || data.length < 1000) break
   }
 
-  const ids = findTransferPairs(rows)
+  const transferIds = findTransferPairs(rows)
     .flat()
     .filter((t) => !(t.category_source === "transfer_match" && t.flow_override === "transfer"))
     .map((t) => t.id)
+  const refundIds = findRefundPairs(rows)
+    .flat()
+    .filter((t) => !(t.category_source === "refund_match" && t.flow_override === "transfer"))
+    .map((t) => t.id)
 
-  for (let i = 0; i < ids.length; i += 100) {
-    const { error } = await supabaseAdmin
-      .from("transactions")
-      .update({ category: "Transfer", flow_override: "transfer", category_source: "transfer_match" })
-      .eq("user_id", userId)
-      .in("id", ids.slice(i, i + 100))
-    if (error) throw new Error(error.message)
+  const apply = async (ids: string[], update: Record<string, string>) => {
+    for (let i = 0; i < ids.length; i += 100) {
+      const { error } = await supabaseAdmin.from("transactions").update(update).eq("user_id", userId).in("id", ids.slice(i, i + 100))
+      if (error) throw new Error(error.message)
+    }
   }
-  return ids.length
+  await apply(transferIds, { category: "Transfer", flow_override: "transfer", category_source: "transfer_match" })
+  // Keep the category (e.g. Shopping) so it's still findable; just don't count it
+  await apply(refundIds, { flow_override: "transfer", category_source: "refund_match" })
+  return transferIds.length + refundIds.length
 }

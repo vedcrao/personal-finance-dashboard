@@ -79,14 +79,14 @@ export function NetWorthHero() {
         </div>
       </div>
 
-      <div className="mt-auto grid grid-cols-3 gap-3 border-t border-white/5 pt-5">
+      <div className="mt-auto grid grid-cols-3 gap-2 border-t border-white/5 pt-5 md:gap-3">
         {[
           { label: "Cash", value: cash, icon: "account_balance_wallet", cls: "bg-secondary/10 text-secondary" },
           { label: "Investments", value: invested, icon: "monitoring", cls: "bg-tertiary/10 text-tertiary" },
           { label: "Debt", value: -debt, icon: "credit_card", cls: "bg-error-container/30 text-error" },
         ].map((s) => (
           <div key={s.label} className="flex items-center gap-3">
-            <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${s.cls}`}>
+            <div className={`hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg md:flex ${s.cls}`}>
               <Icon name={s.icon} size={18} />
             </div>
             <div className="min-w-0">
