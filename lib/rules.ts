@@ -65,6 +65,7 @@ export function normalizeCategory(c: unknown): string | null {
   if (typeof c !== "string") return null
   const s = c.trim().replace(/\s+/g, " ")
   if (!s || s.length > 40) return null
+  if (/^(shopping|groceries|grocery)$/i.test(s)) return "Shopping & Groceries" // merged category
   const builtIn = CATEGORIES.find((b) => b.toLowerCase() === s.toLowerCase())
   return builtIn ?? s.replace(/\b\w/g, (ch) => ch.toUpperCase())
 }

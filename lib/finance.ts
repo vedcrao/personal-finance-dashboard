@@ -131,8 +131,7 @@ export interface CategoryStyle {
 export const CATEGORY_STYLES: Record<string, CategoryStyle> = {
   "Food & Dining": { icon: "restaurant", text: "text-amber-300", bg: "bg-amber-500/10", bar: "bg-amber-400" },
   Coffee: { icon: "local_cafe", text: "text-orange-200", bg: "bg-orange-700/20", bar: "bg-orange-300" },
-  Groceries: { icon: "shopping_cart", text: "text-tertiary", bg: "bg-tertiary/10", bar: "bg-tertiary" },
-  Shopping: { icon: "shopping_bag", text: "text-secondary", bg: "bg-secondary/10", bar: "bg-secondary" },
+  "Shopping & Groceries": { icon: "shopping_cart", text: "text-secondary", bg: "bg-secondary/10", bar: "bg-secondary" },
   Entertainment: { icon: "theaters", text: "text-fuchsia-300", bg: "bg-fuchsia-500/10", bar: "bg-fuchsia-400" },
   Travel: { icon: "flight_takeoff", text: "text-sky-300", bg: "bg-sky-500/10", bar: "bg-sky-400" },
   Transport: { icon: "local_taxi", text: "text-rose-300", bg: "bg-rose-500/10", bar: "bg-rose-400" },

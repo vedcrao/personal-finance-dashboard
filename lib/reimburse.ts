@@ -30,7 +30,7 @@ export interface Row {
 interface Link { id: string; date: string; merchant: string; how?: "memo" | "split" | "ai" }
 
 /** Categories people actually split with you (meals, coffee, groceries, tickets) */
-const SPLITTABLE = new Set(["Food & Dining", "Coffee", "Groceries", "Entertainment"])
+const SPLITTABLE = new Set(["Food & Dining", "Coffee", "Shopping & Groceries", "Entertainment"])
 /** Bump to re-judge every automatic decision after changing the rules above */
 const RULES_VERSION = 2
 

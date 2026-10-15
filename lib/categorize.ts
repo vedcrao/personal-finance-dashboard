@@ -44,11 +44,11 @@ export interface CategorizeResult {
 /* ------------------------------------------------------------------ */
 
 const DETAILED: Record<string, string> = {
-  FOOD_AND_DRINK_GROCERIES: "Groceries",
+  FOOD_AND_DRINK_GROCERIES: "Shopping & Groceries",
   FOOD_AND_DRINK_COFFEE: "Coffee",
   RENT_AND_UTILITIES_RENT: "Rent",
   LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: "Transfer",
-  GENERAL_MERCHANDISE_SUPERSTORES: "Shopping",
+  GENERAL_MERCHANDISE_SUPERSTORES: "Shopping & Groceries",
   ENTERTAINMENT_TV_AND_MOVIES: "Subscriptions",
   ENTERTAINMENT_MUSIC_AND_AUDIO: "Subscriptions",
   GENERAL_SERVICES_INSURANCE: "Utilities",
@@ -56,8 +56,8 @@ const DETAILED: Record<string, string> = {
 
 const PRIMARY: Record<string, string> = {
   FOOD_AND_DRINK: "Food & Dining",
-  GENERAL_MERCHANDISE: "Shopping",
-  HOME_IMPROVEMENT: "Shopping",
+  GENERAL_MERCHANDISE: "Shopping & Groceries",
+  HOME_IMPROVEMENT: "Shopping & Groceries",
   TRANSPORTATION: "Transport",
   TRAVEL: "Travel",
   ENTERTAINMENT: "Entertainment",

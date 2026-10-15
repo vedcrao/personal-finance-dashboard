@@ -1,7 +1,7 @@
 // Client-safe category helpers (no server SDK imports).
 
 export const CATEGORIES = [
-  "Food & Dining", "Coffee", "Groceries", "Shopping", "Entertainment", "Travel", "Transport", "Subscriptions",
+  "Food & Dining", "Coffee", "Shopping & Groceries", "Entertainment", "Travel", "Transport", "Subscriptions",
   "Healthcare", "Utilities", "Rent", "Debt Payments", "Income", "Venmo & Zelle", "Transfer", "Other",
 ] as const
 
