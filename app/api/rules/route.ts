@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { requireUser } from "@/lib/auth"
-import { createRule, deleteRule, listRules, parseRuleInput, previewRule, updateRule } from "@/lib/rules-server"
+import { createRule, deleteRule, findOverlappingRules, listRules, parseRuleInput, previewRule, updateRule } from "@/lib/rules-server"
 
 const err = (e: unknown, status = 400) => NextResponse.json({ error: e instanceof Error ? e.message : "Request failed" }, { status })
 
@@ -29,6 +29,14 @@ export async function POST(request: Request) {
     if (body.preview) {
       const matches = await previewRule(userId, input)
       return NextResponse.json({ matches: matches.length, sample: matches.slice(0, 10) })
+    }
+    const overlaps = await findOverlappingRules(userId, input)
+    if (overlaps.some((o) => o.kind === "duplicate")) return NextResponse.json({ error: "An identical rule already exists" }, { status: 409 })
+    if (overlaps.length && !body.allow_overlap) {
+      return NextResponse.json(
+        { error: `Overlaps with: ${overlaps.map((o) => o.rule.name ?? o.rule.match).join(", ")}. Edit that rule instead, or save anyway.`, overlaps: overlaps.map((o) => o.rule), code: "OVERLAP" },
+        { status: 409 }
+      )
     }
     return NextResponse.json(await createRule(userId, input, "manual"))
   } catch (e) {

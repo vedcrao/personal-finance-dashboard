@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase-server"
 import { isMissingSchema } from "@/lib/db-errors"
 
 const BASE = "id, account_id, amount, merchant_name, description, date, category, is_anomaly, city, region, country"
-const AUTOMATION = `${BASE}, pending, flow_override, category_source`
+const AUTOMATION = `${BASE}, pending, flow_override, category_source, reimburses:raw_data->vertice_reimburses`
 
 export async function GET(request: Request) {
   const auth = await requireUser()

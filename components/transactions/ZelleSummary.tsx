@@ -5,10 +5,14 @@ import { Icon } from "@/components/ui/Icon"
 import { Money } from "@/components/ui/Money"
 import { flowOf, FLOW_LABELS, type Flow } from "@/lib/finance"
 import type { Transaction } from "@/lib/types"
+import { P2P_CATEGORY } from "@/lib/categories"
+import { money } from "@/lib/format"
+
+const hiddenNet = (n: number) => money(n, { sign: true })
 
 /** "Zelle payment to Jay Vanam Conf# …" → "Jay Vanam" */
 export function zelleCounterparty(t: Transaction): string {
-  const m = t.description.match(/zelle\s+(?:payment|transfer)?\s*(?:to|from)\s+(.+?)(?:\s+for\s+"|\s+conf\s*#|;|$)/i)
+  const m = t.description.match(/(?:zelle|venmo)\s*®?\s*(?:payment|transfer)?\s*(?:to|from)\s+(.+?)(?:\s+for\s+"|\s+conf\s*#|;|$)/i)
   const name = (m?.[1] ?? t.merchant_name ?? t.description).trim()
   return name.replace(/\b\w+/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
 }
@@ -21,7 +25,7 @@ const FLOW_STYLE: Record<Flow, string> = {
 }
 
 export function ZelleSummary({ transactions }: { transactions: Transaction[] }) {
-  const zelle = transactions.filter((t) => t.category === "Zelle")
+  const zelle = transactions.filter((t) => t.category === P2P_CATEGORY)
   if (!zelle.length) return null
 
   const sent = zelle.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0)
@@ -42,8 +46,8 @@ export function ZelleSummary({ transactions }: { transactions: Transaction[] }) 
   const top = [...people.entries()].sort((a, b) => b[1].sent + b[1].received - (a[1].sent + a[1].received)).slice(0, 8)
 
   return (
-    <Panel title="Zelle" icon="currency_exchange" iconClass="text-violet-300"
-      action={<span className="text-xs text-on-surface-variant">Click any Zelle row below to change how it counts</span>}>
+    <Panel title="Venmo & Zelle" icon="currency_exchange" iconClass="text-violet-300"
+      action={<span className="text-xs text-on-surface-variant">Net {hiddenNet(sent - received)} added to spending</span>}>
       <div className="grid grid-cols-12 gap-6">
         <div className="col-span-12 flex flex-col gap-3 lg:col-span-5">
           <div className="grid grid-cols-2 gap-3">

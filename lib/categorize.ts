@@ -4,14 +4,14 @@ import { gemini } from "./gemini"
 /**
  * Categorization pipeline (cheapest + most deterministic first):
  *   1. Your rules            ("Zelle payment to Jay Vanam" → Rent, counts as expense)
- *   2. Zelle detection       → "Zelle" (in = income, out = expense unless you change it)
+ *   2. Payment apps          → "Venmo & Zelle" (Zelle/Venmo/Splitwise/…; out adds, in subtracts: one net line)
  *   3. Plaid's own category  (personal_finance_category) when Plaid is confident
  *   4. LLM                   only for what's left (low-confidence Plaid categories)
  *   5. Plaid's category anyway if no LLM is configured / it fails
  * Transactions you've edited by hand (category_source = 'user') are never touched.
  */
 
-import { CATEGORIES, isZelle } from "./categories"
+import { CATEGORIES, P2P_CATEGORY, isP2P } from "./categories"
 import { findRule, type CategorizationRule } from "./rules"
 
 export { CATEGORIES, isZelle, ruleKeyFor } from "./categories"
@@ -33,7 +33,7 @@ export type Rule = CategorizationRule
 export interface CategorizeResult {
   id: string
   category: string
-  category_source: "rule" | "plaid" | "llm"
+  category_source: "rule" | "auto" | "plaid" | "llm"
   flow_override?: FlowOverride | null
   city?: string | null
   country?: string | null
@@ -114,7 +114,7 @@ function parseLlm(raw: string): LlmItem[] {
   throw new Error(`Failed to parse LLM response: ${raw.slice(0, 200)}`)
 }
 
-const LLM_CATEGORIES = CATEGORIES.filter((c) => c !== "Zelle")
+const LLM_CATEGORIES = CATEGORIES.filter((c) => c !== P2P_CATEGORY)
 
 async function llmBatch(batch: CategorizeInput[]): Promise<LlmItem[]> {
   const list = batch
@@ -134,7 +134,7 @@ Rules:
 - Credit card payments, moving money between your own accounts, ATM withdrawals -> "Transfer".
 - Student loan / auto loan / mortgage payments -> "Debt Payments".
 - Coffee shops and cafés where you mostly buy drinks (Starbucks, local coffee roasters, tea/boba) -> "Coffee"; restaurants and cafés serving meals -> "Food & Dining".
-- P2P payments (Venmo/CashApp/PayPal): use the memo; dining -> "Food & Dining", rides -> "Transport", rent/large to a person -> "Rent", otherwise "Other".
+- P2P payments OUT (Venmo/CashApp/PayPal): use the memo; dining -> "Food & Dining", rides -> "Transport", rent/large to a person -> "Rent", otherwise "Other".
 - Infer a 2-letter country code and city only if evident from the merchant name, else null.
 
 Transactions:
@@ -172,24 +172,25 @@ export async function categorize(rows: CategorizeInput[], rules: Rule[]): Promis
 
   for (const t of rows) {
     const rule = findRule(rules, t)
-    const zelle = isZelle(t)
+    const p2p = isP2P(t)
 
     if (rule) {
       results.push({
         id: t.id,
-        category: rule.category ?? (zelle ? "Zelle" : mapPlaidCategory(t)?.category ?? "Other"),
+        category: rule.category ?? (p2p ? P2P_CATEGORY : mapPlaidCategory(t)?.category ?? "Other"),
         category_source: "rule",
         flow_override: rule.flow_override,
       })
       continue
     }
-    if (zelle) {
-      results.push({ id: t.id, category: "Zelle", category_source: "rule" })
+    if (p2p) {
+      // Never guessed by AI: payment apps are one net line
+      results.push({ id: t.id, category: P2P_CATEGORY, category_source: "auto" })
       continue
     }
     // Unambiguous coffee shops by name (Plaid often files these under generic "food")
     if (t.amount > 0 && COFFEE_NAME.test(`${t.merchant_name ?? ""} ${t.description}`)) {
-      results.push({ id: t.id, category: "Coffee", category_source: "rule" })
+      results.push({ id: t.id, category: "Coffee", category_source: "auto" })
       continue
     }
     const plaid = mapPlaidCategory(t)

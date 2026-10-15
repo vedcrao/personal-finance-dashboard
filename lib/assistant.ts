@@ -3,8 +3,8 @@ import { groq } from "./groq"
 import { supabaseAdmin } from "./supabase-server"
 import { CATEGORIES } from "./categories"
 import { describeRule, type CategorizationRule } from "./rules"
-import { createRule, deleteRule, listRules, parseRuleInput, previewRule, updateRule } from "./rules-server"
-import { flowOf, spendAmount } from "./finance"
+import { createRule, deleteRule, findOverlappingRules, listRules, parseRuleInput, previewRule, updateRule } from "./rules-server"
+import { flowOf, spendAmount, spendDate } from "./finance"
 import type { Transaction } from "./types"
 
 /**
@@ -29,6 +29,8 @@ You help the user (1) set up categorization rules in plain English and (2) answe
 
 DATA MODEL
 - Every transaction has: date, description (bank text, e.g. "Zelle payment to Rohan Utd Conf# x1f5"), merchant_name, amount, direction ("out" = money spent/sent, "in" = money received), category, and how it counts: income | expense | reimbursement (someone paying you back; reduces spending) | transfer (ignored, moving own money).
+- All payment-app transactions (Zelle, Venmo, Splitwise, Cash App, PayPal) go in ONE category, "Venmo & Zelle", as a net number: money sent adds to spending, money received (friends paying back) subtracts. They are never AI-categorized. A user rule can pull specific ones out (e.g. Zelle to the landlord $1500+ → Rent, counts as expense; or a person's Zelle in → Income).
+- Note: some banks show Venmo as just "Venmo" with no person's name, so a rule can only target a specific person when their name appears in the description. Check with search_transactions and tell the user if it doesn't.
 - Built-in categories: ${CATEGORIES.join(", ")}. Custom categories are allowed (e.g. "Gym"). Existing custom ones: ${customCategories.join(", ") || "none"}.
 
 RULES
@@ -42,7 +44,8 @@ HOW TO WORK
 3. Then create_rule. For phrases like "100+" use min_amount 100. "Payment to X" means direction "out".
    For money paid to a person for rent/gym/etc., set flow_override "expense" so it counts as spending.
 4. "Recurring" is a description, not a condition you can enforce. Use search results to confirm it repeats, and say so.
-5. To change or remove rules, call list_rules first to get ids.
+5. Before creating a rule, call list_rules. If a rule already covers the request, say so instead of creating another; if one partly overlaps (same person/merchant, overlapping amounts), show it and ask whether to update it (update_rule) or keep both (create_rule with allow_overlap: true, only after the user says so). create_rule also enforces this and will refuse duplicates.
+5b. To change or remove rules, call list_rules first to get ids. update_rule / delete_rule only work once the user has asked for that change or said yes; otherwise they return ask_user_first, so ask: "You already have <rule>. Want me to change it to <new>, or keep both?"
 6. For spending questions use spending_summary / search_transactions. Never invent numbers.
 Keep replies short and concrete: what you did, how many transactions changed, and anything ambiguous. Use plain text, no markdown tables.`
 }
@@ -84,7 +87,7 @@ const tools: ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "create_rule",
-      description: "Save a categorization rule and apply it to all matching past transactions.",
+      description: "Save a categorization rule and apply it to all matching past transactions. Refuses if an identical rule exists, and returns overlapping existing rules instead of saving unless allow_overlap is true.",
       parameters: {
         type: "object",
         properties: {
@@ -93,6 +96,7 @@ const tools: ChatCompletionTool[] = [
           direction: { type: "string", enum: ["in", "out"] },
           category: { type: "string" },
           flow_override: { type: "string", enum: ["income", "expense", "reimbursement", "transfer"] },
+          allow_overlap: { type: "boolean", description: "Only true after the user explicitly said to keep both rules" },
         },
         required: ["match"],
       },
@@ -144,7 +148,7 @@ async function loadTransactions(userId: string): Promise<Txn[]> {
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabaseAdmin
       .from("transactions")
-      .select("id, account_id, amount, merchant_name, description, date, category, flow_override, category_source, pending, is_anomaly, city, region, country")
+      .select("id, account_id, amount, merchant_name, description, date, category, flow_override, category_source, pending, is_anomaly, city, region, country, reimburses:raw_data->vertice_reimburses")
       .eq("user_id", userId)
       .order("date", { ascending: false })
       .range(from, from + 999)
@@ -193,7 +197,7 @@ function spendingSummary(all: Txn[], a: Record<string, unknown>) {
   const start = String(a.start_date ?? "0000-00-00")
   const end = String(a.end_date ?? "9999-99-99")
   const by = a.group_by === "merchant" ? "merchant" : "category"
-  const inRange = all.filter((t) => t.date >= start && t.date <= end)
+  const inRange = all.filter((t) => spendDate(t) >= start && spendDate(t) <= end)
   const groups = new Map<string, number>()
   let spend = 0
   let income = 0
@@ -223,6 +227,11 @@ export async function runAssistant(userId: string, history: { role: "user" | "as
     ...history.slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }) as ChatCompletionMessageParam),
   ]
   const actions: AssistantAction[] = []
+  // Rules flagged as overlapping in THIS turn can't be edited until the user answers the question
+  const askFirst = new Set<string>()
+  // Editing/deleting an existing rule needs the user's go-ahead: their message asks for it, or answers a question
+  const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? ""
+  const userApproved = /\b(update|change|edit|replace|modify|adjust|lower|raise|delete|remove|yes|yeah|yep|sure|go ahead|do it|confirm|ok|okay|please do|both|that one)\b/i.test(lastUser)
   let txnsDirty = false
 
   for (let step = 0; step < 8; step++) {
@@ -253,13 +262,35 @@ export async function runAssistant(userId: string, history: { role: "user" | "as
             break
           }
           case "create_rule": {
-            const { rule, applied } = await createRule(userId, parseRuleInput(args), "assistant")
+            const input = parseRuleInput(args)
+            const overlaps = await findOverlappingRules(userId, input)
+            const dup = overlaps.find((o) => o.kind === "duplicate")
+            if (dup) {
+              if (dup.rule.id) askFirst.add(dup.rule.id)
+              result = { saved: false, reason: "identical_rule_exists", existing: { id: dup.rule.id, name: dup.rule.name, rule: describeRule(dup.rule) } }
+              break
+            }
+            if (overlaps.length && args.allow_overlap !== true) {
+              overlaps.forEach((o) => o.rule.id && askFirst.add(o.rule.id))
+              result = {
+                saved: false,
+                reason: "overlapping_rules_exist",
+                existing: overlaps.map((o) => ({ id: o.rule.id, name: o.rule.name, rule: describeRule(o.rule) })),
+                instruction: "Do not save yet. Tell the user which existing rule(s) overlap and ask: update the existing rule, or keep both?",
+              }
+              break
+            }
+            const { rule, applied } = await createRule(userId, input, "assistant")
             actions.push({ type: "rule_created", summary: `${rule.name ? `${rule.name}: ` : ""}${describeRule(rule)}`, applied })
             txnsDirty = true
             result = { ok: true, id: rule.id, applied_to_existing: applied }
             break
           }
           case "update_rule": {
+            if (askFirst.has(String(args.id)) || !userApproved) {
+              result = { saved: false, reason: "ask_user_first", instruction: "This rule overlaps the request. Describe the existing rule and the proposed change, and ask the user to confirm before updating." }
+              break
+            }
             const { rule, applied } = await updateRule(userId, String(args.id), parseRuleInput(args))
             actions.push({ type: "rule_updated", summary: describeRule(rule), applied })
             txnsDirty = true
@@ -267,6 +298,10 @@ export async function runAssistant(userId: string, history: { role: "user" | "as
             break
           }
           case "delete_rule": {
+            if (!userApproved) {
+              result = { saved: false, reason: "ask_user_first", instruction: "Describe the rule and ask the user to confirm deleting it." }
+              break
+            }
             const r = await deleteRule(userId, String(args.id))
             actions.push({ type: "rule_deleted", summary: `Deleted rule (${r.reset} transactions will be re-categorized)` })
             txnsDirty = true

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/Badge"
 import { Icon } from "@/components/ui/Icon"
 import { Money } from "@/components/ui/Money"
 import { Sparkline } from "@/components/charts/LineChart"
-import { addDays, currentMonthRange, inRange, netWorth, sumIncome, sumSpend, totalBalance, ymd } from "@/lib/finance"
+import { addDays, currentMonthRange, spendDate, inRange, netWorth, sumIncome, sumSpend, totalBalance, ymd } from "@/lib/finance"
 import { money } from "@/lib/format"
 import type { BalanceSnapshot } from "@/lib/types"
 
@@ -35,7 +35,7 @@ export function NetWorthHero() {
   }, [data])
 
   const { start, end } = currentMonthRange()
-  const monthTxns = transactions.filter((t) => inRange(t.date, start, end))
+  const monthTxns = transactions.filter((t) => inRange(spendDate(t), start, end))
   const cashFlow = sumIncome(monthTxns) - sumSpend(monthTxns)
 
   const hasHistory = series.length >= 2

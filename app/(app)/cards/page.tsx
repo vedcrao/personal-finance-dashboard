@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/Badge"
 import { Money } from "@/components/ui/Money"
 import { ProgressBar } from "@/components/ui/ProgressBar"
 import { EmptyState } from "@/components/ui/States"
-import { cardNetwork, currentMonthRange, currentStatementPeriod, inRange, sumSpend, utilization } from "@/lib/finance"
+import { cardNetwork, currentMonthRange, spendDate, currentStatementPeriod, inRange, sumSpend, utilization } from "@/lib/finance"
 import { shortDate } from "@/lib/format"
 
 export default function CardsPage() {
@@ -43,7 +43,7 @@ export default function CardsPage() {
       })()
     : { ...currentMonthRange(), label: "This month" }
 
-  const periodTxns = transactions.filter((t) => t.account_id === card.id && inRange(t.date, period.start, period.end))
+  const periodTxns = transactions.filter((t) => t.account_id === card.id && inRange(spendDate(t), period.start, period.end))
 
   return (
     <div className="grid grid-cols-12 gap-6">

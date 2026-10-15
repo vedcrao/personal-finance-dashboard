@@ -2,10 +2,16 @@
 
 export const CATEGORIES = [
   "Food & Dining", "Coffee", "Groceries", "Shopping", "Entertainment", "Travel", "Transport", "Subscriptions",
-  "Healthcare", "Utilities", "Rent", "Debt Payments", "Income", "Zelle", "Transfer", "Other",
+  "Healthcare", "Utilities", "Rent", "Debt Payments", "Income", "Venmo & Zelle", "Transfer", "Other",
 ] as const
 
 export type Category = (typeof CATEGORIES)[number]
+
+/**
+ * Every Zelle / Venmo / Splitwise / Cash App / PayPal payment lands here (unless one of your rules
+ * says otherwise, e.g. Zelle to your landlord → Rent). Out adds, in subtracts: one net number.
+ */
+export const P2P_CATEGORY = "Venmo & Zelle"
 
 export function isZelle(t: { description: string; merchant_name: string | null }) {
   return /\bzelle\b/i.test(`${t.merchant_name ?? ""} ${t.description}`)
@@ -23,4 +29,13 @@ export function ruleKeyFor(t: { description: string; merchant_name: string | nul
     .replace(/[;,]+\s*$/g, "")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+/** Person-to-person payment apps: money in from these is usually someone paying you back. */
+export const P2P_TEXT = /\b(zelle|venmo|cash ?app|paypal|apple cash|splitwise)\b/i
+const P2P_PFC = new Set(["TRANSFER_OUT_TRANSFER_OUT_FROM_APPS", "TRANSFER_IN_TRANSFER_IN_FROM_APPS"])
+
+export function isP2P(t: { description: string; merchant_name: string | null; raw_data?: unknown }): boolean {
+  const pfc = (t.raw_data as { personal_finance_category?: { detailed?: string } } | null | undefined)?.personal_finance_category?.detailed
+  return P2P_TEXT.test(`${t.merchant_name ?? ""} ${t.description}`) || P2P_PFC.has(pfc ?? "")
 }

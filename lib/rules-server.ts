@@ -70,6 +70,37 @@ export async function applyRuleToExisting(userId: string, rule: CategorizationRu
   return matches.length
 }
 
+export interface RuleOverlap {
+  kind: "duplicate" | "overlap"
+  rule: CategorizationRule
+}
+
+/**
+ * Existing rules that would catch some of the same transactions as `input`:
+ * match texts contain one another, directions are compatible, and amount ranges intersect.
+ */
+export async function findOverlappingRules(userId: string, input: Omit<CategorizationRule, "id">, ignoreId?: string): Promise<RuleOverlap[]> {
+  const a = normalizeText(input.match)
+  const lo = (r: { min_amount?: number | null }) => (r.min_amount == null ? 0 : Number(r.min_amount))
+  const hi = (r: { max_amount?: number | null }) => (r.max_amount == null ? Infinity : Number(r.max_amount))
+  return (await listRules(userId))
+    .filter((r) => r.id !== ignoreId)
+    .filter((r) => {
+      const b = normalizeText(r.match)
+      const textOverlap = a.includes(b) || b.includes(a)
+      const dirOverlap = !r.direction || !input.direction || r.direction === input.direction
+      const amountOverlap = Math.max(lo(r), lo(input)) <= Math.min(hi(r), hi(input))
+      return textOverlap && dirOverlap && amountOverlap
+    })
+    .map((rule) => {
+      const same =
+        normalizeText(rule.match) === a && lo(rule) === lo(input) && hi(rule) === hi(input) &&
+        (rule.direction ?? null) === (input.direction ?? null) && (rule.category ?? null) === (input.category ?? null) &&
+        (rule.flow_override ?? null) === (input.flow_override ?? null)
+      return { kind: same ? "duplicate" : "overlap", rule } as RuleOverlap
+    })
+}
+
 export async function listRules(userId: string): Promise<CategorizationRule[]> {
   const { data, error } = await supabaseAdmin
     .from("categorization_rules")

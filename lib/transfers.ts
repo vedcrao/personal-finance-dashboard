@@ -1,4 +1,6 @@
 import { supabaseAdmin } from "./supabase-server"
+import { isP2P as isP2PShared } from "./categories"
+import { matchRepayments, type Row as RepaymentRow } from "./reimburse"
 
 /**
  * Internal transfer detection: money that leaves one of YOUR accounts and the same
@@ -11,11 +13,10 @@ import { supabaseAdmin } from "./supabase-server"
  */
 
 const WINDOW_DAYS = 4
-const P2P_TEXT = /\b(zelle|venmo|cash ?app|paypal|apple cash)\b/i
-const P2P_PFC = new Set(["TRANSFER_OUT_TRANSFER_OUT_FROM_APPS", "TRANSFER_IN_TRANSFER_IN_FROM_APPS"])
 
 interface Row {
   id: string
+  category?: string | null
   account_id: string
   date: string
   amount: number
@@ -26,8 +27,7 @@ interface Row {
   raw_data: { personal_finance_category?: { detailed?: string } | null } | null
 }
 
-const isP2P = (t: Row) =>
-  P2P_TEXT.test(`${t.merchant_name ?? ""} ${t.description}`) || P2P_PFC.has(t.raw_data?.personal_finance_category?.detailed ?? "")
+const isP2P = (t: Row) => isP2PShared(t)
 
 // You (or a rule you wrote) decided how these count; leave them alone
 const locked = (t: Row) => t.category_source === "user" || t.category_source === "rule"
@@ -84,13 +84,26 @@ export function findRefundPairs(rows: Row[]): [Row, Row][] {
   return pairs
 }
 
+/**
+ * Money moving from an account of yours that has no transactions here (e.g. a matured CD):
+ * the description names one of your own account masks ("…MATUR BAL ID:XXXXXX7959").
+ */
+export function findOwnAccountTransfers(rows: Row[], masks: string[]): string[] {
+  const own = masks.filter((m) => /^\d{4}$/.test(m))
+  return rows
+    .filter((t) => !locked(t) && !isP2P(t) && t.category_source !== "transfer_match" && t.category_source !== "refund_match")
+    .filter((t) => /\b(transfer|xfer|matur|from|to|deposit|withdraw)/i.test(t.description))
+    .filter((t) => own.some((m) => new RegExp(`(?:x|-|#|\\*|\\s)${m}\\b`, "i").test(t.description)))
+    .map((t) => t.id)
+}
+
 /** Marks matched transfer pairs (ignored) and purchase/refund pairs (refunded). Returns how many changed. */
 export async function markInternalTransfers(userId: string): Promise<number> {
   const rows: Row[] = []
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabaseAdmin
       .from("transactions")
-      .select("id, account_id, date, amount, description, merchant_name, category_source, flow_override, raw_data")
+      .select("id, account_id, date, amount, description, merchant_name, category, category_source, flow_override, raw_data")
       .eq("user_id", userId)
       .order("date")
       .range(from, from + 999)
@@ -117,5 +130,13 @@ export async function markInternalTransfers(userId: string): Promise<number> {
   await apply(transferIds, { category: "Transfer", flow_override: "transfer", category_source: "transfer_match" })
   // Keep the category (e.g. Shopping) so it's still findable; just don't count it
   await apply(refundIds, { flow_override: "transfer", category_source: "refund_match" })
-  return transferIds.length + refundIds.length
+
+  const { data: accts } = await supabaseAdmin.from("accounts").select("mask").eq("user_id", userId)
+  const ownIds = findOwnAccountTransfers(rows.filter((t) => !transferIds.includes(t.id)), (accts ?? []).map((a) => a.mask).filter(Boolean))
+  await apply(ownIds, { category: "Transfer", flow_override: "transfer", category_source: "transfer_match" })
+
+  // Repayments: linked to a purchase only when confident; otherwise stay in the net Venmo & Zelle line
+  const linked = await matchRepayments(userId, rows.filter((t) => !ownIds.includes(t.id) && !transferIds.includes(t.id)) as RepaymentRow[])
+
+  return transferIds.length + refundIds.length + ownIds.length + linked
 }

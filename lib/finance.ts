@@ -1,5 +1,5 @@
 import type { Account, Transaction } from "./types"
-import { ruleKeyFor } from "./categories"
+import { isP2P, P2P_CATEGORY, ruleKeyFor } from "./categories"
 
 /* ------------------------------------------------------------------ */
 /* Classification                                                      */
@@ -18,22 +18,26 @@ export type Flow = "income" | "expense" | "reimbursement" | "transfer"
 /**
  * How a transaction counts. Precedence:
  *   1. your explicit choice (flow_override)
- *   2. category "Transfer" → transfer; "Zelle" → income if money in, expense if money out
+ *   2. payment apps (Venmo & Zelle): out = expense, in = paid back (reduces spending); category "Transfer" → transfer
  *   3. keyword fallback for transfers
  *   4. money back from a store (negative amount in a spending category) = refund → reduces spending
  *   5. sign: money in = income, money out = expense
  */
 export function flowOf(t: Transaction): Flow {
   if (t.flow_override) return t.flow_override
+  // Money in from a payment app (Zelle, Venmo, Splitwise…) = someone paying you back for something
+  // you fronted. Only your own edits/rules can say otherwise (e.g. mark a person's Zelle as Income).
+  const yours = t.category_source === "user" || t.category_source === "rule"
+  if (t.amount < 0 && isP2P(t) && !yours) return "reimbursement"
   if (t.category === "Transfer") return "transfer"
-  if (t.category === "Zelle") return t.amount < 0 ? "income" : "expense"
+  if (t.category === P2P_CATEGORY) return t.amount < 0 ? "reimbursement" : "expense"
   if (t.category !== "Income" && TRANSFER_KEYWORDS.some((k) => t.description.toLowerCase().includes(k))) return "transfer"
   if (t.amount < 0) return isRefundCategory(t.category) ? "reimbursement" : "income"
   return "expense"
 }
 
 /** Categories where money coming back means a refund/return, not income. */
-const NOT_REFUND = new Set(["Income", "Zelle", "Transfer", "Debt Payments", "Other", "Uncategorized"])
+const NOT_REFUND = new Set(["Income", P2P_CATEGORY, "Transfer", "Debt Payments", "Other", "Uncategorized"])
 export function isRefundCategory(category: string | null): boolean {
   return !!category && !NOT_REFUND.has(category)
 }
@@ -42,13 +46,24 @@ export function isRefundCategory(category: string | null): boolean {
 export function flowLabel(t: Transaction): string {
   if (isMatchedRefund(t)) return "Refunded"
   const f = flowOf(t)
-  if (f === "reimbursement") return t.amount < 0 && !t.flow_override && isRefundCategory(t.category) ? "Refund" : "Reimbursed"
+  if (f === "reimbursement") {
+    if (t.amount < 0 && isP2P(t)) return "Paid back"
+    return t.amount < 0 && !t.flow_override && isRefundCategory(t.category) ? "Refund" : "Reimbursed"
+  }
   return { income: "Income", expense: "Expense", transfer: "Ignored" }[f]
 }
 
 /** A purchase + its refund that were paired and cancel out (both show as "Refunded", count as $0). */
 export function isMatchedRefund(t: Transaction): boolean {
   return t.category_source === "refund_match"
+}
+
+/**
+ * The date a transaction counts toward spending: a repayment counts on the day of the purchase it
+ * paid back (friends Venmo you in August for July's Airbnb → it reduces July). Lists still show t.date.
+ */
+export function spendDate(t: Transaction): string {
+  return t.reimburses?.date ?? t.date
 }
 
 export function isTransfer(t: Transaction): boolean {
@@ -126,7 +141,7 @@ export const CATEGORY_STYLES: Record<string, CategoryStyle> = {
   Utilities: { icon: "bolt", text: "text-yellow-300", bg: "bg-yellow-500/10", bar: "bg-yellow-400" },
   Rent: { icon: "apartment", text: "text-orange-300", bg: "bg-orange-500/10", bar: "bg-orange-400" },
   Income: { icon: "payments", text: "text-tertiary", bg: "bg-tertiary/10", bar: "bg-tertiary" },
-  Zelle: { icon: "currency_exchange", text: "text-violet-300", bg: "bg-violet-500/15", bar: "bg-violet-400" },
+  [P2P_CATEGORY]: { icon: "currency_exchange", text: "text-violet-300", bg: "bg-violet-500/15", bar: "bg-violet-400" },
   "Debt Payments": { icon: "account_balance", text: "text-red-300", bg: "bg-red-500/10", bar: "bg-red-400" },
   Transfer: { icon: "sync_alt", text: "text-secondary", bg: "bg-secondary/10", bar: "bg-secondary" },
   Other: { icon: "category", text: "text-on-surface-variant", bg: "bg-surface-container-highest", bar: "bg-outline" },
@@ -156,8 +171,9 @@ export function categoryBreakdown(txns: Transaction[]): CategoryTotal[] {
     map.set(key, cur)
   }
   return [...map.entries()]
-    .filter(([, v]) => v.amount > 0.005)
-    .map(([category, v]) => ({ category, ...v, pct: total > 0 ? (v.amount / total) * 100 : 0 }))
+    // Venmo & Zelle is a net number: shown even when more came in than went out (negative)
+    .filter(([category, v]) => v.amount > 0.005 || (category === P2P_CATEGORY && Math.abs(v.amount) > 0.005))
+    .map(([category, v]) => ({ category, ...v, pct: total > 0 ? Math.max(0, (v.amount / total) * 100) : 0 }))
     .sort((a, b) => b.amount - a.amount)
 }
 
@@ -307,7 +323,7 @@ export function weekBuckets(txns: Transaction[], weekStart: Date): DayBucket[] {
   return Array.from({ length: 7 }, (_, i) => {
     const d = addDays(weekStart, i)
     const date = ymd(d)
-    const dayTxns = txns.filter((t) => t.date === date && isSpend(t))
+    const dayTxns = txns.filter((t) => spendDate(t) === date && isSpend(t))
     const label = d.toLocaleDateString("en-US", { weekday: "short" })
     return { date, label, short: label[0], total: dayTxns.reduce((s, t) => s + spendAmount(t), 0), txns: dayTxns }
   })

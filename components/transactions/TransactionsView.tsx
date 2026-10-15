@@ -10,11 +10,12 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl"
 import { EmptyState } from "@/components/ui/States"
 import { RecurringView } from "./RecurringView"
 import { ZelleSummary } from "./ZelleSummary"
+import { P2P_CATEGORY } from "@/lib/categories"
 import { MonthScroller, monthRange } from "./MonthScroller"
 import { TransactionItem } from "./TransactionItem"
 import {
   ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_ORDER, categoryBreakdown, categoryStyle, formatLocation, getBillingPeriods,
-  flowLabel, flowOf, isMatchedRefund, isSpend, spendAmount, ymd, type Flow,
+  flowLabel, flowOf, isMatchedRefund, isSpend, spendAmount, spendDate, ymd, type Flow,
 } from "@/lib/finance"
 import { shortDate } from "@/lib/format"
 import type { Transaction } from "@/lib/types"
@@ -64,7 +65,7 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
   }, [transactions, initial.month])
   const monthTotals = useMemo(() => {
     const m = new Map<string, number>()
-    for (const t of scoped) m.set(t.date.slice(0, 7), (m.get(t.date.slice(0, 7)) ?? 0) + spendAmount(t))
+    for (const t of scoped) m.set(spendDate(t).slice(0, 7), (m.get(spendDate(t).slice(0, 7)) ?? 0) + spendAmount(t))
     return m
   }, [scoped])
 
@@ -73,11 +74,11 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
     return d.startsWith(month)
   }
 
-  const periodTxns = scoped.filter((t) => inPeriod(t.date))
+  const periodTxns = scoped.filter((t) => inPeriod(spendDate(t)))
   const spendTxns = periodTxns.filter(isSpend)
   const totalSpend = spendTxns.reduce((s, t) => s + spendAmount(t), 0)
   const cats = categoryBreakdown(periodTxns)
-  const zelleCount = periodTxns.filter((t) => t.category === "Zelle").length
+  const zelleCount = periodTxns.filter((t) => t.category === P2P_CATEGORY).length
   const topCategory = cats[0]
 
   const now = new Date()
@@ -214,9 +215,9 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
                 action={
                   <div className="flex items-center gap-3">
                     {zelleCount > 0 && (
-                      <button type="button" onClick={() => setCategory(category === "Zelle" ? null : "Zelle")}
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${category === "Zelle" ? "bg-violet-500/25 text-violet-200 ring-1 ring-violet-400/50" : "bg-violet-500/10 text-violet-300 hover:bg-violet-500/20"}`}>
-                        <Icon name="currency_exchange" size={14} /> Zelle ({zelleCount})
+                      <button type="button" onClick={() => setCategory(category === P2P_CATEGORY ? null : P2P_CATEGORY)}
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${category === P2P_CATEGORY ? "bg-violet-500/25 text-violet-200 ring-1 ring-violet-400/50" : "bg-violet-500/10 text-violet-300 hover:bg-violet-500/20"}`}>
+                        <Icon name="currency_exchange" size={14} /> Venmo &amp; Zelle ({zelleCount})
                       </button>
                     )}
                     {category && <button type="button" onClick={() => setCategory(null)} className="text-xs font-semibold text-primary hover:underline">Clear</button>}
@@ -283,7 +284,7 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
             </div>
           </div>
 
-          {category === "Zelle" && <ZelleSummary transactions={periodTxns} />}
+          {category === P2P_CATEGORY && <ZelleSummary transactions={periodTxns} />}
 
           {/* Table */}
           {/* listOpen: All / category / card / place / search picked */}
@@ -340,7 +341,7 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
                     <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">By card or account</p>
                     <div className="flex flex-wrap gap-2">
                       {ACCOUNT_TYPE_ORDER.flatMap((type) => accounts.filter((a) => a.type === type && a.type !== "investment")).map((a) => {
-                        const n = transactions.filter((t) => t.account_id === a.id && inPeriod(t.date)).length
+                        const n = transactions.filter((t) => t.account_id === a.id && inPeriod(spendDate(t))).length
                         if (!n) return null
                         return (
                           <button key={a.id} type="button" onClick={() => { setAccountId(a.id); setViewMode("month") }}
@@ -434,7 +435,7 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
                               <td className="px-4 py-3">
                                 <button type="button" onClick={() => editTransaction(t)} title="Change how this counts"
                                   className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition-opacity hover:opacity-80 ${isMatchedRefund(t) ? "bg-amber-500/10 text-amber-300" : FLOW_PILL[flowOf(t)]}`}>
-                                  {flowLabel(t)}{t.flow_override && !isMatchedRefund(t) && <Icon name="edit" size={11} />}
+                                  {flowLabel(t)}{t.reimburses && ` · ${t.reimburses.merchant.slice(0, 16)}`}{t.flow_override && !isMatchedRefund(t) && t.category_source !== "reimb_match" && <Icon name="edit" size={11} />}
                                 </button>
                               </td>
                               <td className={`px-6 py-3 text-right font-semibold ${t.amount < 0 ? "text-tertiary" : ""}`}>

@@ -1,10 +1,11 @@
 "use client"
 
 import { useFinance } from "@/components/providers/FinanceProvider"
+import { P2P_CATEGORY } from "@/lib/categories"
 import { Icon } from "@/components/ui/Icon"
 import { Money } from "@/components/ui/Money"
 import { categoryStyle, flowLabel, flowOf, flowType, isMatchedRefund } from "@/lib/finance"
-import { relativeDay } from "@/lib/format"
+import { relativeDay, shortDate } from "@/lib/format"
 import type { Account, Transaction } from "@/lib/types"
 
 interface Props {
@@ -22,7 +23,7 @@ export function TransactionItem({ t, account, showAccount }: Props) {
   const counts = flowOf(t)
   const flow = flowType(t)
   const refunded = isMatchedRefund(t)
-  const zelle = t.category === "Zelle"
+  const zelle = t.category === P2P_CATEGORY
   const style = categoryStyle(zelle || refunded ? t.category : flow === "income" ? "Income" : t.category)
   const icon = flow === "outflow" || zelle || refunded ? style.icon : FLOW_ICON[flow]
   const iconClasses = zelle || refunded
@@ -48,6 +49,7 @@ export function TransactionItem({ t, account, showAccount }: Props) {
           <div className="flex items-center gap-1.5 text-xs text-on-surface-variant">
             <span className="truncate">{showAccount ? account?.name ?? "—" : flow === "transfer" && !refunded ? "Transfer" : t.category ?? "Uncategorized"}
               {(counts === "reimbursement" || isMatchedRefund(t)) && ` · ${flowLabel(t).toLowerCase()}`}
+              {t.reimburses && ` · ${t.reimburses.merchant.slice(0, 22)} ${shortDate(t.reimburses.date)}`}
               {t.pending && " · pending"}</span>
             <span className="h-1 w-1 shrink-0 rounded-full bg-outline" />
             <span className="shrink-0">{relativeDay(t.date)}</span>

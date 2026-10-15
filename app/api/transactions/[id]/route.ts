@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { requireUser } from "@/lib/auth"
 import { supabaseAdmin } from "@/lib/supabase-server"
 import { isMissingSchema } from "@/lib/db-errors"
-import { ruleKeyFor } from "@/lib/categories"
+import { P2P_CATEGORY, ruleKeyFor } from "@/lib/categories"
 import { normalizeCategory, type FlowChoice } from "@/lib/rules"
 import { createRule, listRules, updateRule } from "@/lib/rules-server"
 import { AUTOMATION_MIGRATION_HINT } from "@/lib/sync"
@@ -14,6 +14,41 @@ const FLOWS: FlowChoice[] = ["income", "expense", "reimbursement", "transfer"]
  * remember = also save a rule ("Apply to all similar") and apply it to every matching transaction.
  * Categories can be custom (e.g. "Gym").
  */
+/**
+ * PATCH { link_to: "<purchase id>" | null }
+ *   Manually link a repayment (money IN, e.g. a Zelle from a friend) to the purchase it paid back,
+ *   or unlink it (back into the net Venmo & Zelle line). Hand-set, so the matcher never overrides it.
+ */
+async function linkRepayment(userId: string, id: string, linkTo: string | null) {
+  const { data: r } = await supabaseAdmin.from("transactions").select("id, amount, raw_data").eq("id", id).eq("user_id", userId).maybeSingle()
+  if (!r) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  if (r.amount >= 0) return NextResponse.json({ error: "Only money coming in can be linked as a repayment" }, { status: 400 })
+  const raw = { ...((r.raw_data as Record<string, unknown>) ?? {}), vertice_reimb_checked: true } as Record<string, unknown>
+
+  if (!linkTo) {
+    delete raw.vertice_reimburses
+    const { error } = await supabaseAdmin.from("transactions")
+      .update({ category: P2P_CATEGORY, flow_override: null, category_source: "user", raw_data: raw })
+      .eq("id", id).eq("user_id", userId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ transaction: { id, category: P2P_CATEGORY, flow_override: null }, reimburses: null, applied: 0 })
+  }
+
+  const { data: e } = await supabaseAdmin.from("transactions").select("id, date, amount, category, merchant_name, description")
+    .eq("id", linkTo).eq("user_id", userId).maybeSingle()
+  if (!e) return NextResponse.json({ error: "Purchase not found" }, { status: 404 })
+  if (e.amount <= 0) return NextResponse.json({ error: "Pick a purchase (money out)" }, { status: 400 })
+
+  const link = { id: e.id, date: e.date, merchant: (e.merchant_name ?? e.description).replace(/\s*conf(irmation)?\s*#.*$/i, "").slice(0, 60), how: "manual" }
+  raw.vertice_reimburses = link
+  const category = e.category ?? "Other"
+  const { error } = await supabaseAdmin.from("transactions")
+    .update({ category, flow_override: "reimbursement", category_source: "user", raw_data: raw })
+    .eq("id", id).eq("user_id", userId)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ transaction: { id, category, flow_override: "reimbursement" }, reimburses: link, applied: 0 })
+}
+
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireUser()
   if (auth instanceof NextResponse) return auth
@@ -21,6 +56,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const { id } = await params
   const body = await request.json().catch(() => ({}))
+  if ("link_to" in body) return linkRepayment(userId, id, typeof body.link_to === "string" && body.link_to ? body.link_to : null)
 
   const updates: Record<string, string | null> = { category_source: "user" }
   if ("category" in body) {
@@ -35,9 +71,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     updates.flow_override = body.flow_override
   }
 
+  // A hand-edited repayment is no longer tied to the purchase the matcher picked
+  const { data: current } = await supabaseAdmin.from("transactions").select("raw_data").eq("id", id).eq("user_id", userId).maybeSingle()
+  const raw = current?.raw_data as Record<string, unknown> | null
+  let unlink: Record<string, unknown> | null = null
+  if (raw && "vertice_reimburses" in raw) {
+    unlink = { ...raw }
+    delete unlink.vertice_reimburses
+  }
+
   const { data: txn, error } = await supabaseAdmin
     .from("transactions")
-    .update(updates)
+    .update(unlink ? { ...updates, raw_data: unlink } : updates)
     .eq("id", id)
     .eq("user_id", userId)
     .select("id, description, merchant_name, category, flow_override")

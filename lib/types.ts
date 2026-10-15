@@ -14,8 +14,10 @@ export interface Transaction {
   pending: boolean
   /** Your choice of how this counts; null = automatic */
   flow_override: FlowOverride | null
-  /** rule | plaid | llm | user */
+  /** rule | auto | plaid | llm | user | transfer_match | refund_match | reimb_match */
   category_source: string | null
+  /** For repayments (Zelle/Venmo in): the purchase it paid back */
+  reimburses?: { id: string; date: string; merchant: string; how?: "memo" | "split" | "ai" | "manual" } | null
 }
 
 export type FlowOverride = "income" | "expense" | "reimbursement" | "transfer"

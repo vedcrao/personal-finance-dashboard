@@ -39,14 +39,19 @@ function RuleForm({ initial, onCancel, onSaved, categories }: {
     } catch (e) { notify(e instanceof Error ? e.message : "Preview failed", "error") }
   }
 
-  async function save() {
+  const [overlap, setOverlap] = useState<string | null>(null)
+  async function save(allowOverlap = false) {
     setSaving(true)
     try {
-      const res = await sendJson<{ applied: number }>("/api/rules", initial.id ? "PATCH" : "POST", { ...r, id: initial.id })
+      const res = await sendJson<{ applied: number }>("/api/rules", initial.id ? "PATCH" : "POST", { ...r, id: initial.id, allow_overlap: allowOverlap })
       notify(`Rule saved · ${res.applied} transactions updated`)
       onSaved()
       void refresh()
-    } catch (e) { notify(e instanceof Error ? e.message : "Save failed", "error") }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Save failed"
+      if (msg.startsWith("Overlaps with")) setOverlap(msg)
+      else notify(msg, "error")
+    }
     finally { setSaving(false) }
   }
 
@@ -74,13 +79,19 @@ function RuleForm({ initial, onCancel, onSaved, categories }: {
           <option value="transfer">Ignore (transfer)</option>
         </select>
       </div>
+      {overlap && (
+        <div className="flex items-start justify-between gap-2 rounded-lg bg-amber-500/10 p-2.5 text-xs text-amber-200">
+          <span>{overlap}</span>
+          <button type="button" onClick={() => { setOverlap(null); void save(true) }} className="shrink-0 font-semibold underline">Save anyway</button>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 pt-1">
         <button type="button" onClick={doPreview} disabled={r.match.trim().length < 3} className="text-xs font-semibold text-secondary hover:underline disabled:opacity-40">
           {preview === null ? "Preview matches" : `Matches ${preview} transaction${preview === 1 ? "" : "s"}`}
         </button>
         <div className="flex gap-2">
           <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
-          <Button size="sm" variant="primary" loading={saving} onClick={save} disabled={r.match.trim().length < 3}>Save rule</Button>
+          <Button size="sm" variant="primary" loading={saving} onClick={() => save()} disabled={r.match.trim().length < 3}>Save rule</Button>
         </div>
       </div>
     </div>

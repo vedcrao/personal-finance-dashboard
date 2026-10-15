@@ -2,15 +2,16 @@
 
 import { useState } from "react"
 import { useFinance } from "@/components/providers/FinanceProvider"
+import { PaidBackSummary, RepaymentLinker } from "./RepaymentLinker"
 import { sendJson } from "@/components/hooks/useApi"
 import { Modal } from "@/components/ui/Modal"
 import { Button } from "@/components/ui/Button"
 import { Badge } from "@/components/ui/Badge"
 import { Icon } from "@/components/ui/Icon"
 import { Money } from "@/components/ui/Money"
-import { CATEGORIES, isZelle, ruleKeyFor } from "@/lib/categories"
+import { CATEGORIES, isP2P, ruleKeyFor } from "@/lib/categories"
 import { categoryStyle, flowOf, type Flow } from "@/lib/finance"
-import { longDate } from "@/lib/format"
+import { longDate, shortDate } from "@/lib/format"
 import type { FlowOverride, Transaction } from "@/lib/types"
 
 const FLOW_OPTIONS: { value: Flow; label: string; hint: string; icon: string; cls: string }[] = [
@@ -20,7 +21,7 @@ const FLOW_OPTIONS: { value: Flow; label: string; hint: string; icon: string; cl
   { value: "transfer", label: "Ignore", hint: "Moving your own money. Not counted", icon: "sync_alt", cls: "text-on-surface-variant" },
 ]
 
-const SOURCE_LABEL: Record<string, string> = { plaid: "Plaid", llm: "AI", rule: "your rule", user: "you", transfer_match: "matching transfer between your accounts", refund_match: "matched refund (purchase + return cancel out)" }
+const SOURCE_LABEL: Record<string, string> = { plaid: "Plaid", llm: "AI", rule: "your rule", user: "you", transfer_match: "transfer between your accounts", refund_match: "matched refund", auto: "auto-detected", reimb_match: "repayment match" }
 
 /** Rendered once in the app layout; opened via useFinance().editTransaction(t). */
 export function TransactionEditorHost() {
@@ -38,7 +39,12 @@ function TransactionEditor({ t, onClose }: { t: Transaction; onClose: () => void
   const [category, setCategory] = useState<string | null>(t.category)
   // null = automatic
   const [flow, setFlow] = useState<FlowOverride | null>(t.flow_override)
-  const [remember, setRemember] = useState(isZelle(t))
+  // Payment-app transactions are usually one-offs between people: don't turn them into rules by default
+  const [remember, setRemember] = useState(false)
+  const isRepayment = t.amount < 0 && isP2P(t)
+  const originalLink = t.reimburses?.id ?? null
+  const [linkTo, setLinkTo] = useState<string | null>(originalLink)
+  const linkChanged = linkTo !== originalLink
   const [saving, setSaving] = useState(false)
 
   const autoFlow = flowOf({ ...t, category, flow_override: null })
@@ -49,6 +55,14 @@ function TransactionEditor({ t, onClose }: { t: Transaction; onClose: () => void
   async function save() {
     setSaving(true)
     try {
+      if (isRepayment && linkChanged) {
+        const res = await sendJson<{ transaction: { category: string; flow_override: FlowOverride | null }; reimburses: Transaction["reimburses"] }>(
+          `/api/transactions/${t.id}`, "PATCH", { link_to: linkTo })
+        updateTransaction(t.id, { ...res.transaction, category_source: "user", reimburses: res.reimburses })
+        notify(linkTo ? `Linked: counts against ${res.reimburses?.merchant ?? "that purchase"}` : "Unlinked: back in Venmo & Zelle")
+        onClose()
+        return
+      }
       const res = await sendJson<{ applied: number }>(`/api/transactions/${t.id}`, "PATCH", { category, flow_override: flow, remember })
       updateTransaction(t.id, { category, flow_override: flow, category_source: "user" })
       if (res.applied > 0) {
@@ -90,11 +104,16 @@ function TransactionEditor({ t, onClose }: { t: Transaction; onClose: () => void
           <div className="mt-2 flex flex-wrap gap-1.5">
             {t.pending && <Badge tone="warning">Pending</Badge>}
             {t.category_source && <Badge>Categorized by {SOURCE_LABEL[t.category_source] ?? t.category_source}</Badge>}
+            {t.reimburses && <Badge tone="secondary" icon="link">Pays back {t.reimburses.merchant.slice(0, 28)} · {shortDate(t.reimburses.date)}</Badge>}
           </div>
         </div>
         <Money value={-t.amount} sign className={`shrink-0 text-xl font-bold ${moneyIn ? "text-tertiary" : ""}`} />
       </div>
 
+      {isRepayment && <RepaymentLinker t={t} all={transactions} value={linkTo} onChange={setLinkTo} />}
+      <PaidBackSummary t={t} all={transactions} />
+
+      {!(isRepayment && linkTo) && (<>
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">Counts as</p>
         <button
@@ -170,6 +189,7 @@ function TransactionEditor({ t, onClose }: { t: Transaction; onClose: () => void
           </p>
         </div>
       </label>
+      </>)}
     </Modal>
   )
 }

@@ -5,7 +5,7 @@ import { Panel } from "@/components/ui/Panel"
 import { Badge } from "@/components/ui/Badge"
 import { Icon } from "@/components/ui/Icon"
 import { Money } from "@/components/ui/Money"
-import { currentMonthRange, detectRecurring, inRange, sumIncome, sumSpend } from "@/lib/finance"
+import { currentMonthRange, spendDate, detectRecurring, inRange, sumIncome, sumSpend } from "@/lib/finance"
 import { shortDate } from "@/lib/format"
 import type { Transaction } from "@/lib/types"
 
@@ -15,7 +15,7 @@ import type { Transaction } from "@/lib/types"
  */
 export function CashFlowInsights({ transactions }: { transactions: Transaction[] }) {
   const { start, end } = currentMonthRange()
-  const month = transactions.filter((t) => inRange(t.date, start, end))
+  const month = transactions.filter((t) => inRange(spendDate(t), start, end))
   const income = sumIncome(month)
   const spend = sumSpend(month)
   const savingsRate = income > 0 ? ((income - spend) / income) * 100 : null

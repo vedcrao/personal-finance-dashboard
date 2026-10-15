@@ -56,6 +56,8 @@ export async function POST(request: Request) {
     const res = await plaidClient.linkTokenCreate({
       ...base,
       products: [Products.Transactions],
+      // Plaid defaults to 90 days of history; ask for the max (2 years). Can only be set when first linking.
+      transactions: { days_requested: 730 },
       // Best-effort: card statements/due dates (Cards page) and holdings (Investments page)
       optional_products: [Products.Liabilities, Products.Investments],
       // Consent only — lets /api/accounts/[id]/numbers call /auth/get on demand

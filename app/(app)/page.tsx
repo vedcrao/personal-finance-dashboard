@@ -13,7 +13,7 @@ import { Panel } from "@/components/ui/Panel"
 import { Badge } from "@/components/ui/Badge"
 import { Icon } from "@/components/ui/Icon"
 import { EmptyState } from "@/components/ui/States"
-import { addDays, startOfWeek, ymd } from "@/lib/finance"
+import { addDays, spendDate, startOfWeek, ymd } from "@/lib/finance"
 
 export default function OverviewPage() {
   const { transactions, accounts } = useFinance()
@@ -27,9 +27,9 @@ export default function OverviewPage() {
     const start = addDays(startOfWeek(new Date()), weekOffset * 7)
     const s = ymd(start)
     const e = ymd(addDays(start, 6))
-    return transactions.filter((t) => t.date >= s && t.date <= e)
+    return transactions.filter((t) => spendDate(t) >= s && spendDate(t) <= e)
   }, [transactions, weekOffset])
-  const dayTxns = useMemo(() => (day ? transactions.filter((t) => t.date === day) : []), [transactions, day])
+  const dayTxns = useMemo(() => (day ? transactions.filter((t) => spendDate(t) === day) : []), [transactions, day])
   const dayLabel = day ? new Date(day + "T00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }) : ""
   const backToWeek = (
     <button type="button" onClick={() => setDay(null)}
