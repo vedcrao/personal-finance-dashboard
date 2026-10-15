@@ -24,25 +24,18 @@ function Tile({ icon, gradient, label, hint, busy }: { icon: string; gradient: s
 
 /** Desktop version of the Stitch quick-action matrix, mapped to things this app can actually do. */
 export function QuickActions() {
-  const { syncAndCategorize, syncing, sendDigest, sendingDigest, me } = useFinance()
+  const { syncAndCategorize, syncing } = useFinance()
 
   const items: ReactNode[] = [
     <button key="sync" type="button" className={TILE} onClick={syncAndCategorize} disabled={!!syncing}>
       <Tile icon="sync" busy={!!syncing} label="Sync & categorize" hint="Pull new transactions, AI-tag them"
         gradient="from-primary-container/40 to-primary/20 text-primary-fixed shadow-[0_2px_12px_rgba(128,131,255,0.25)]" />
     </button>,
-    me?.owner ? (
-      <button key="digest" type="button" className={TILE} onClick={sendDigest} disabled={sendingDigest}>
-        <Tile icon="sms" busy={sendingDigest} label="Text me a digest" hint="AI weekly summary by SMS"
-          gradient="from-secondary-container/40 to-secondary/20 text-secondary-fixed shadow-[0_2px_12px_rgba(3,181,211,0.25)]" />
-      </button>
-    ) : (
-      <Link key="assistant" href="/assistant" className={TILE}>
-        <Tile icon="auto_awesome" label="Ask the assistant" hint="Rules & spending questions"
-          gradient="from-secondary-container/40 to-secondary/20 text-secondary-fixed shadow-[0_2px_12px_rgba(3,181,211,0.25)]" />
-      </Link>
-    ),
-    <Link key="recurring" href="/transactions?tab=recurring" className={TILE}>
+    <Link key="assistant" href="/assistant" className={TILE}>
+      <Tile icon="auto_awesome" label="Ask the assistant" hint="Rules & spending questions"
+        gradient="from-secondary-container/40 to-secondary/20 text-secondary-fixed shadow-[0_2px_12px_rgba(3,181,211,0.25)]" />
+    </Link>,
+    <Link key="recurring" href="/spending?tab=recurring" className={TILE}>
       <Tile icon="autorenew" label="Recurring bills" hint="Subscriptions & repeat charges"
         gradient="from-tertiary-container/40 to-tertiary/20 text-tertiary-fixed shadow-[0_2px_12px_rgba(78,222,163,0.25)]" />
     </Link>,

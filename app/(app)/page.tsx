@@ -81,7 +81,7 @@ export default function OverviewPage() {
             icon="history"
             iconClass="text-on-surface-variant"
             padded={false}
-            action={<Link href="/transactions" className="text-xs font-semibold text-primary hover:underline">View all</Link>}
+            action={<Link href="/spending" className="text-xs font-semibold text-primary hover:underline">View all</Link>}
           >
             <div className="divide-y divide-white/[0.04]">
               {transactions.slice(0, 8).map((t) => (

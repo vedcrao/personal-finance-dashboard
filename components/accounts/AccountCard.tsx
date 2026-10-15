@@ -139,7 +139,7 @@ export function AccountCard({ account, isPrimary, interestThisMonth, goals, sele
           </button>
         ))}
         <Link
-          href={`/transactions?account=${account.id}`}
+          href={`/spending?account=${account.id}`}
           className="flex flex-col items-center justify-center gap-0.5 rounded-lg bg-surface-container-high px-1 py-2 text-[11px] font-semibold transition-colors hover:bg-surface-bright"
         >
           <Icon name="receipt_long" size={18} className="text-on-surface-variant" />

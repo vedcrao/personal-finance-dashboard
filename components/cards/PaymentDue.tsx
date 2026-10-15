@@ -79,10 +79,10 @@ export function PaymentDue({ account, liability }: { account: Account; liability
       )}
 
       <div className="mt-auto flex flex-col gap-2 sm:flex-row">
-        <ButtonLink href={`/transactions?account=${account.id}&view=statement`} variant="primary" icon="receipt_long" className="flex-1">
+        <ButtonLink href={`/spending?account=${account.id}&view=statement`} variant="primary" icon="receipt_long" className="flex-1">
           Statement transactions
         </ButtonLink>
-        <ButtonLink href={`/transactions?account=${account.id}`} icon="list">All activity</ButtonLink>
+        <ButtonLink href={`/spending?account=${account.id}`} icon="list">All activity</ButtonLink>
       </div>
     </Panel>
   )

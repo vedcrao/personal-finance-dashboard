@@ -44,7 +44,7 @@ function useAlerts(): Alert[] {
 
     const monthAgo = ymd(addDays(new Date(), -30))
     for (const t of transactions.filter((t) => t.is_anomaly && t.date >= monthAgo).slice(0, 5)) {
-      out.push({ id: `an-${t.id}`, icon: "gpp_maybe", tone: "info", title: `Unusual: ${t.merchant_name ?? t.description}`, detail: `${money(t.amount)} on ${shortDate(t.date)}`, href: "/transactions" })
+      out.push({ id: `an-${t.id}`, icon: "gpp_maybe", tone: "info", title: `Unusual: ${t.merchant_name ?? t.description}`, detail: `${money(t.amount)} on ${shortDate(t.date)}`, href: "/spending" })
     }
     return out
   }, [accounts, liabilities, transactions])

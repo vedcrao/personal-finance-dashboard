@@ -8,7 +8,7 @@ import { useFinance } from "@/components/providers/FinanceProvider"
 import { Notifications } from "./Notifications"
 import { NAV, SECONDARY_NAV, navFor } from "./nav"
 
-const TABS = ["/", "/accounts", "/cards", "/investments"]
+const TABS = ["/", "/spending", "/accounts", "/cards", "/investments"]
 
 /** Phone header (Stitch mobile design): brand / page title, privacy, alerts, sync. */
 export function MobileHeader() {

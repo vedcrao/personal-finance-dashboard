@@ -57,8 +57,6 @@ interface FinanceContextValue {
   syncing: string | null
   /** Re-apply rules / Plaid / AI to everything not edited by hand (chunked, resumable) */
   recategorizeAll: () => Promise<void>
-  sendDigest: () => Promise<void>
-  sendingDigest: boolean
   hidden: boolean
   toggleHidden: () => void
   notify: (message: string, tone?: ToastTone) => void
@@ -102,7 +100,6 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [syncing, setSyncing] = useState<string | null>(null)
-  const [sendingDigest, setSendingDigest] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastId = useRef(0)
   const lastLoadAt = useRef(0)
@@ -226,17 +223,6 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     }
   }, [load, notify, runCategorization])
 
-  const sendDigest = useCallback(async () => {
-    setSendingDigest(true)
-    try {
-      await getJson("/api/digest", { method: "POST" })
-      notify("Weekly digest sent by SMS")
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Failed to send digest", "error")
-    } finally {
-      setSendingDigest(false)
-    }
-  }, [notify])
 
   const signOut = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST" })
@@ -248,11 +234,11 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       me, signOut,
       accounts, closedAccounts, transactions, liabilities, loading, error, lastUpdated,
       hasData: accounts.length > 0,
-      refresh, syncAndCategorize, syncing, recategorizeAll, sendDigest, sendingDigest,
+      refresh, syncAndCategorize, syncing, recategorizeAll,
       hidden, toggleHidden: () => setPrivacy(!hidden), notify,
       updateTransaction, editing, editTransaction: setEditing,
     }),
-    [me, signOut, accounts, closedAccounts, transactions, liabilities, loading, error, lastUpdated, refresh, syncAndCategorize, syncing, recategorizeAll, sendDigest, sendingDigest, hidden, notify, updateTransaction, editing]
+    [me, signOut, accounts, closedAccounts, transactions, liabilities, loading, error, lastUpdated, refresh, syncAndCategorize, syncing, recategorizeAll, hidden, notify, updateTransaction, editing]
   )
 
   return (

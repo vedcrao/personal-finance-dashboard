@@ -8,10 +8,10 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
   { href: "/", label: "Overview", icon: "dashboard", title: "Overview", subtitle: "Net worth, spending velocity and recent activity" },
+  { href: "/spending", label: "Spending", icon: "payments", title: "Spending", subtitle: "Every transaction and recurring bill, by month" },
   { href: "/accounts", label: "Accounts", icon: "account_balance", title: "Checking & Savings", subtitle: "Cash, savings goals and money movement" },
   { href: "/cards", label: "Cards", icon: "credit_card", title: "Credit & Cards", subtitle: "Utilization, statements and payments due" },
   { href: "/investments", label: "Invest", icon: "monitoring", title: "Investment Portfolio", subtitle: "Performance, allocation and holdings" },
-  { href: "/transactions", label: "Transactions", icon: "receipt_long", title: "Transactions", subtitle: "Every transaction, filterable by period, category and place" },
   { href: "/assistant", label: "Assistant", icon: "auto_awesome", title: "Assistant & Rules", subtitle: "Describe how to sort your money in plain English" },
 ]
 

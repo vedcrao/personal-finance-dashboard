@@ -39,7 +39,7 @@ export function UpcomingRecurring() {
       className="h-full"
       padded={false}
       action={
-        <Link href="/transactions?tab=recurring" className="text-xs font-semibold text-primary hover:underline">
+        <Link href="/spending?tab=recurring" className="text-xs font-semibold text-primary hover:underline">
           View all
         </Link>
       }

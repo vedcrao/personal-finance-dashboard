@@ -10,15 +10,15 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl"
 import { EmptyState } from "@/components/ui/States"
 import { RecurringView } from "./RecurringView"
 import { ZelleSummary } from "./ZelleSummary"
+import { MonthScroller, monthRange } from "./MonthScroller"
 import { TransactionItem } from "./TransactionItem"
 import {
   ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_ORDER, categoryBreakdown, categoryStyle, formatLocation, getBillingPeriods,
-  flowLabel, flowOf, getRecentMonths, isMatchedRefund, isSpend, spendAmount, ymd, type Flow,
+  flowLabel, flowOf, isMatchedRefund, isSpend, spendAmount, ymd, type Flow,
 } from "@/lib/finance"
 import { shortDate } from "@/lib/format"
 import type { Transaction } from "@/lib/types"
 
-const MONTHS = getRecentMonths(6)
 
 const FLOW_PILL: Record<Flow, string> = {
   income: "bg-tertiary/10 text-tertiary",
@@ -32,7 +32,7 @@ export interface TransactionsViewProps {
 }
 
 export function TransactionsView({ initial }: TransactionsViewProps) {
-  const { accounts, transactions, loading, editTransaction } = useFinance()
+  const { accounts, transactions, loading, editTransaction, hidden } = useFinance()
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts])
 
   const [tab, setTab] = useState(initial.tab)
@@ -55,6 +55,18 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
   const [showAll, setShowAll] = useState(!!initial.account)
 
   const scoped = useMemo(() => (accountId ? transactions.filter((t) => t.account_id === accountId) : transactions), [transactions, accountId])
+
+  // Month strip: every month since your first transaction, with that month's spending
+  const allMonths = useMemo(() => {
+    const earliest = transactions.reduce<string | null>((min, t) => (!min || t.date < min ? t.date : min), null)
+    const list = monthRange(earliest)
+    return initial.month && !list.includes(initial.month) ? [...list, initial.month].sort() : list
+  }, [transactions, initial.month])
+  const monthTotals = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const t of scoped) m.set(t.date.slice(0, 7), (m.get(t.date.slice(0, 7)) ?? 0) + spendAmount(t))
+    return m
+  }, [scoped])
 
   const inPeriod = (d: string) => {
     if (effectiveView === "statement" && periods[periodIdx]) return d >= periods[periodIdx].start && d <= periods[periodIdx].end
@@ -138,7 +150,7 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
           </label>
         </div>
 
-        {tab === "transactions" && (
+        {tab === "transactions" && canStatement && (
           <div className="flex flex-wrap items-center gap-2">
             {canStatement && (
               <SegmentedControl
@@ -149,25 +161,26 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
                 options={[{ value: "month", label: "Month" }, { value: "statement", label: "Statement" }]}
               />
             )}
-            <div className="flex gap-1 overflow-x-auto">
-              {effectiveView === "month"
-                ? MONTHS.map((m) => (
-                    <button key={m.value} type="button" onClick={() => setMonth(m.value)}
-                      className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${month === m.value ? "bg-indigo-brand text-white" : "border border-white/[0.06] bg-white/[0.04] text-on-surface-variant hover:text-on-surface"}`}>
-                      {m.label}
-                    </button>
-                  ))
-                : periods.map((p, i) => (
-                    <button key={p.end} type="button" onClick={() => setPeriodIdx(i)}
-                      className={`rounded-xl px-3.5 py-1 text-left text-xs font-semibold leading-tight transition-colors ${periodIdx === i ? "bg-indigo-brand text-white" : "border border-white/[0.06] bg-white/[0.04] text-on-surface-variant hover:text-on-surface"}`}>
-                      <div>{p.label}</div>
-                      <div className="font-normal opacity-70">{shortDate(p.start)} → {shortDate(p.end)}</div>
-                    </button>
-                  ))}
-            </div>
+            {effectiveView === "statement" && (
+              <div className="flex gap-1 overflow-x-auto">
+                {periods.map((p, i) => (
+                  <button key={p.end} type="button" onClick={() => setPeriodIdx(i)}
+                    className={`rounded-xl px-3.5 py-1 text-left text-xs font-semibold leading-tight transition-colors ${periodIdx === i ? "bg-indigo-brand text-white" : "border border-white/[0.06] bg-white/[0.04] text-on-surface-variant hover:text-on-surface"}`}>
+                    <div>{p.label}</div>
+                    <div className="font-normal opacity-70">{shortDate(p.start)} → {shortDate(p.end)}</div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {tab === "transactions" && effectiveView === "month" && (
+        <div className="glass rounded-2xl px-2 py-2">
+          <MonthScroller months={allMonths} value={month} onChange={setMonth} totals={monthTotals} hidden={hidden} />
+        </div>
+      )}
 
       {tab === "recurring" ? (
         <RecurringView transactions={scoped} />

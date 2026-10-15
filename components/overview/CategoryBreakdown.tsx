@@ -29,7 +29,7 @@ export function CategoryBreakdown({ transactions, title = "Breakdown by Category
       icon="donut_large"
       iconClass="text-primary"
       className="h-full"
-      action={action ?? <Link href="/transactions" className="text-xs font-semibold text-primary hover:underline">All transactions</Link>}
+      action={action ?? <Link href="/spending" className="text-xs font-semibold text-primary hover:underline">All transactions</Link>}
     >
       {cats.length === 0 ? (
         <EmptyState icon="donut_large" title="No spending in this period" />
@@ -43,7 +43,7 @@ export function CategoryBreakdown({ transactions, title = "Breakdown by Category
             return (
               <Link
                 key={c.category}
-                href={`/transactions?${params}`}
+                href={`/spending?${params}`}
                 className="flex flex-col gap-2 rounded-xl bg-surface-container-low/50 p-3 transition-colors hover:bg-surface-container-high/50"
               >
                 <div className="flex items-center justify-between gap-3">
