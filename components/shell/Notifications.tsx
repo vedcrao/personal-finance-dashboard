@@ -4,7 +4,8 @@ import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Icon } from "@/components/ui/Icon"
 import { useFinance } from "@/components/providers/FinanceProvider"
-import { addDays, daysUntil, utilization, ymd } from "@/lib/finance"
+import { addDays, daysUntil, spendAmount, spendDate, utilization, ymd } from "@/lib/finance"
+import { useApi } from "@/components/hooks/useApi"
 import { money, shortDate } from "@/lib/format"
 
 interface Alert {
@@ -19,8 +20,21 @@ interface Alert {
 /** Alerts derived from real data: payments due, high utilization, flagged anomalies. */
 function useAlerts(): Alert[] {
   const { accounts, liabilities, transactions } = useFinance()
+  const budgetsApi = useApi<{ budgets: { category: string; monthly_amount: number }[] }>("/api/budgets")
+  const budgets = budgetsApi.data?.budgets
   return useMemo(() => {
     const out: Alert[] = []
+    // Category budgets this month: warn at 90%, alert when over
+    const month = ymd(new Date()).slice(0, 7)
+    for (const b of budgets ?? []) {
+      const spent = transactions.filter((t) => spendDate(t).startsWith(month) && t.category === b.category).reduce((s, t) => s + spendAmount(t), 0)
+      const pct = (spent / b.monthly_amount) * 100
+      if (pct >= 90) {
+        out.push({ id: `bud-${b.category}`, icon: pct > 100 ? "error" : "savings", tone: pct > 100 ? "error" : "warning",
+          title: pct > 100 ? `${b.category} over budget` : `${b.category} at ${pct.toFixed(0)}% of budget`,
+          detail: `${money(spent, { cents: false })} of ${money(b.monthly_amount, { cents: false })} this month`, href: "/spending" })
+      }
+    }
     const byId = new Map(accounts.map((a) => [a.id, a]))
 
     for (const l of liabilities) {
@@ -47,7 +61,7 @@ function useAlerts(): Alert[] {
       out.push({ id: `an-${t.id}`, icon: "gpp_maybe", tone: "info", title: `Unusual: ${t.merchant_name ?? t.description}`, detail: `${money(t.amount)} on ${shortDate(t.date)}`, href: "/spending" })
     }
     return out
-  }, [accounts, liabilities, transactions])
+  }, [accounts, liabilities, transactions, budgets])
 }
 
 export function Notifications() {

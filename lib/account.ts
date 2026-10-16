@@ -2,7 +2,7 @@ import { supabaseAdmin } from "./supabase-server"
 import { getPlaidClient, forgetPlaidClient } from "./plaid"
 
 /** Child tables first (foreign keys), then the account itself. */
-const USER_TABLES = ["transactions", "balance_snapshots", "savings_goals", "categorization_rules", "user_settings", "accounts", "plaid_items", "plaid_credentials", "profiles"]
+const USER_TABLES = ["transactions", "balance_snapshots", "savings_goals", "categorization_rules", "user_settings", "category_budgets", "accounts", "plaid_items", "plaid_credentials", "profiles"]
 
 export interface DeletionReport {
   banksDisconnected: number

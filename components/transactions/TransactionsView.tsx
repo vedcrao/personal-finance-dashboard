@@ -12,6 +12,9 @@ import { RecurringView } from "./RecurringView"
 import { ZelleSummary } from "./ZelleSummary"
 import { P2P_CATEGORY } from "@/lib/categories"
 import { MonthScroller, monthRange } from "./MonthScroller"
+import { CategoryBudgets } from "./CategoryBudgets"
+import { useApi } from "@/components/hooks/useApi"
+import type { CategoryBudget } from "@/lib/budgets"
 import { TransactionItem } from "./TransactionItem"
 import {
   ACCOUNT_TYPE_LABELS, ACCOUNT_TYPE_ORDER, categoryBreakdown, categoryStyle, formatLocation, getBillingPeriods,
@@ -34,6 +37,8 @@ export interface TransactionsViewProps {
 
 export function TransactionsView({ initial }: TransactionsViewProps) {
   const { accounts, transactions, loading, editTransaction, hidden } = useFinance()
+  const budgetsApi = useApi<{ budgets: CategoryBudget[]; setupRequired: boolean }>("/api/budgets")
+  const budgets = budgetsApi.data?.budgets ?? []
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts])
 
   const [tab, setTab] = useState(initial.tab)
@@ -211,7 +216,7 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
           {/* Category + location */}
           <div className="grid grid-cols-12 gap-6">
             <div className="col-span-12 xl:col-span-7">
-              <Panel title="Spend by Category" icon="donut_large" iconClass="text-primary" className="h-full"
+              <Panel title="Spending & Budgets" icon="donut_large" iconClass="text-primary" className="h-full"
                 action={
                   <div className="flex items-center gap-3">
                     {zelleCount > 0 && (
@@ -223,28 +228,9 @@ export function TransactionsView({ initial }: TransactionsViewProps) {
                     {category && <button type="button" onClick={() => setCategory(null)} className="text-xs font-semibold text-primary hover:underline">Clear</button>}
                   </div>
                 }>
-                {cats.length === 0 ? <EmptyState icon="donut_large" title="No spending in this period" /> : (
-                  <div className="grid grid-cols-1 gap-x-6 gap-y-1 lg:grid-cols-2">
-                    {cats.map((c) => {
-                      const s = categoryStyle(c.category)
-                      const sel = category === c.category
-                      return (
-                        <button key={c.category} type="button" onClick={() => setCategory(sel ? null : c.category)}
-                          className={`flex items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors ${sel ? "bg-surface-container-high ring-1 ring-indigo-brand/40" : "hover:bg-surface-container-high/50"}`}>
-                          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${s.bg} ${s.text}`}><Icon name={s.icon} size={16} /></div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex justify-between gap-2 text-xs">
-                              <span className="truncate font-semibold">{c.category}</span>
-                              <Money value={c.amount} className="font-semibold" />
-                            </div>
-                            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-container-highest">
-                              <div className={`h-full rounded-full ${s.bar}`} style={{ width: `${c.pct}%` }} />
-                            </div>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
+                {cats.length === 0 && !budgets.length ? <EmptyState icon="donut_large" title="No spending in this period" /> : (
+                  <CategoryBudgets cats={cats} budgets={budgets} setupRequired={budgetsApi.setupRequired} monthly={effectiveView === "month"}
+                    selected={category} onSelect={setCategory} onBudgetsChange={(b) => budgetsApi.setData({ budgets: b, setupRequired: false })} />
                 )}
               </Panel>
             </div>

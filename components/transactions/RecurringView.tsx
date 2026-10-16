@@ -15,16 +15,16 @@ const FREQ_TONE: Record<RecurringItem["frequency"], Tone> = { Weekly: "warning",
 function RecurringTable({ items, empty }: { items: RecurringItem[]; empty: string }) {
   if (!items.length) return <EmptyState icon="event_repeat" title={empty}>Something counts once it’s the same amount, on a regular schedule, for at least 3 months in a row.</EmptyState>
   return (
-    <table className="w-full text-sm">
+    <table className="w-full table-fixed text-sm md:table-auto">
       <thead>
         <tr className="border-b border-white/5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
-          <th className="px-2 py-3 md:px-4 text-left md:px-6">Merchant</th>
+          <th className="px-3 py-3 text-left md:px-6">Merchant</th>
           <th className="max-md:hidden px-4 py-3 text-left">Category</th>
-          <th className="px-2 py-3 md:px-4 text-left">Frequency</th>
+          <th className="max-md:hidden px-4 py-3 text-left">Frequency</th>
           <th className="max-md:hidden px-4 py-3 text-right">Occurrences</th>
           <th className="max-md:hidden px-4 py-3 text-left">Last</th>
           <th className="max-md:hidden px-4 py-3 text-right">Typical</th>
-          <th className="px-3 py-3 md:px-6 text-right">Per month</th>
+          <th className="w-28 px-3 py-3 text-right md:w-auto md:px-6">Per month</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-white/[0.04]">
@@ -33,17 +33,21 @@ function RecurringTable({ items, empty }: { items: RecurringItem[]; empty: strin
           return (
             <tr key={r.merchant} className="transition-colors hover:bg-surface-container-high/40">
               <td className="px-3 py-3 md:px-6">
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${s.bg} ${s.text}`}><Icon name={s.icon} size={18} /></div>
-                  <span className="max-w-[150px] truncate font-semibold md:max-w-[260px]">{r.merchant}</span>
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold md:max-w-[260px]">{r.merchant}</p>
+                    {/* Phones: frequency under the name instead of its own column */}
+                    <p className="truncate text-[11px] text-on-surface-variant md:hidden">{r.frequency}</p>
+                  </div>
                 </div>
               </td>
               <td className="px-2 py-3 md:px-4 text-on-surface-variant max-md:hidden">{r.category ?? "—"}</td>
-              <td className="px-2 py-3 md:px-4"><Badge tone={FREQ_TONE[r.frequency]}>{r.frequency}</Badge></td>
+              <td className="px-2 py-3 max-md:hidden md:px-4"><Badge tone={FREQ_TONE[r.frequency]}>{r.frequency}</Badge></td>
               <td className="px-2 py-3 md:px-4 text-right tabular text-on-surface-variant max-md:hidden">{r.count}</td>
               <td className="px-2 py-3 md:px-4 text-on-surface-variant max-md:hidden">{shortDate(r.lastDate)}</td>
               <td className="px-2 py-3 md:px-4 text-right max-md:hidden"><Money value={r.avgAmount} /></td>
-              <td className={`px-6 py-3 text-right font-semibold ${r.direction === "in" ? "text-tertiary" : ""}`}><Money value={r.monthlyCost} /></td>
+              <td className={`px-3 py-3 text-right font-semibold md:px-6 ${r.direction === "in" ? "text-tertiary" : ""}`}><Money value={r.monthlyCost} /></td>
             </tr>
           )
         })}

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next"
 import { Plus_Jakarta_Sans } from "next/font/google"
 import "./globals.css"
 import { SplashHider } from "@/components/shell/SplashHider"
+import { ErrorReporter } from "@/components/shell/ErrorReporter"
 
 const jakarta = Plus_Jakarta_Sans({
   variable: "--font-jakarta",
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       </head>
       <body className="min-h-full">
         <SplashHider />
+        <ErrorReporter />
         {children}
       </body>
     </html>

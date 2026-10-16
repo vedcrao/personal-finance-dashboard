@@ -27,7 +27,7 @@ export interface Row {
   raw_data: Record<string, unknown> | null
 }
 
-interface Link { id: string; date: string; merchant: string; how?: "memo" | "split" | "ai" }
+export interface Link { id: string; date: string; merchant: string; how?: "memo" | "split" | "ai" }
 
 /** Categories people actually split with you (meals, coffee, groceries, tickets) */
 const SPLITTABLE = new Set(["Food & Dining", "Coffee", "Shopping & Groceries", "Entertainment"])
@@ -80,8 +80,14 @@ Respond ONLY with JSON: {"items":[{"index":1,"match":2,"confidence":"high"}]}  (
   return out
 }
 
-/** Returns how many repayments were linked (new or re-applied). */
-export async function matchRepayments(userId: string, rows: Row[]): Promise<number> {
+export type AskAI = (items: { r: Row; candidates: Row[] }[]) => Promise<Map<string, string | null>>
+
+/**
+ * Pure decision logic (no database): which repayments link to which purchase.
+ * Returns repayment id → link (or null = keep in the net Venmo & Zelle line).
+ * `ai` is injectable so tests can simulate the model.
+ */
+export async function decideRepayments(rows: Row[], ai: AskAI = askAI): Promise<Map<string, Link | null>> {
   const byId = new Map(rows.map((t) => [t.id, t]))
   const expenses = rows.filter(
     (t) => t.amount > 0 && !isP2P(t) && !NOT_FRONTABLE.has(t.category ?? "") &&
@@ -127,16 +133,23 @@ export async function matchRepayments(userId: string, rows: Row[]): Promise<numb
     else decided.set(r.id, null)
   }
 
-  const ai = await askAI(pending)
+  const aiResult = await ai(pending)
   for (const { r } of pending) {
-    if (!ai.has(r.id)) continue // AI unavailable: decide next time
-    const e = ai.get(r.id) ? byId.get(ai.get(r.id)!) : undefined
+    if (!aiResult.has(r.id)) continue // AI unavailable: decide next time
+    const e = aiResult.get(r.id) ? byId.get(aiResult.get(r.id)!) : undefined
     if (e && room(e) >= Math.abs(r.amount)) {
       decided.set(r.id, { id: e.id, date: e.date, merchant: nameOf(e), how: "ai" })
       paidBack.set(e.id, (paidBack.get(e.id) ?? 0) + Math.abs(r.amount))
     } else decided.set(r.id, null)
   }
 
+  return decided
+}
+
+/** Decide (see decideRepayments) and save. Returns how many repayments are linked. */
+export async function matchRepayments(userId: string, rows: Row[]): Promise<number> {
+  const byId = new Map(rows.map((t) => [t.id, t]))
+  const decided = await decideRepayments(rows)
   let linked = 0
   const updates = [...decided.entries()]
   for (let i = 0; i < updates.length; i += 25) {

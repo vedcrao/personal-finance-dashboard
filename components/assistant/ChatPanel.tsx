@@ -5,20 +5,22 @@ import { useFinance } from "@/components/providers/FinanceProvider"
 import { Panel } from "@/components/ui/Panel"
 import { Icon } from "@/components/ui/Icon"
 
-interface Action { type: "rule_created" | "rule_updated" | "rule_deleted"; summary: string; applied?: number }
+interface Action { type: "rule_created" | "rule_updated" | "rule_deleted" | "budget_set"; summary: string; applied?: number }
 interface Msg { role: "user" | "assistant"; content: string; actions?: Action[]; error?: boolean }
 
 const SUGGESTIONS = [
   "If there's a recurring payment of 100+ to Rohan or 1000+ to Jay, classify them as Gym and Rent",
   "Treat Zelle money from Arnav as reimbursement",
   "How much did I spend on food last month?",
-  "What rules do I have?",
+  "Suggest monthly budgets based on my last 3 months",
+  "Set my Food & Dining budget to $400 a month",
 ]
 
 const ACTION_STYLE = {
   rule_created: { icon: "add_task", cls: "text-tertiary", label: "Rule created" },
   rule_updated: { icon: "edit", cls: "text-secondary", label: "Rule updated" },
   rule_deleted: { icon: "delete", cls: "text-error", label: "Rule deleted" },
+  budget_set: { icon: "savings", cls: "text-primary", label: "Budget" },
 }
 
 export function ChatPanel({ onRulesChanged }: { onRulesChanged: () => void }) {

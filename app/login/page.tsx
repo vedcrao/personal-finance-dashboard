@@ -37,7 +37,7 @@ function LoginForm() {
         <Field label="Email or username">
           <input className={`${AUTH_INPUT} border-white/10`} autoFocus autoComplete="username" autoCapitalize="none" value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
         </Field>
-        <Field label="Password">
+        <Field label="Password" hint={<Link href="/forgot-password" className="font-semibold text-primary hover:underline">Forgot password?</Link>}>
           <input className={`${AUTH_INPUT} border-white/10`} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
         {params.get("deleted") && !error && <p className="rounded-lg bg-tertiary/10 px-3 py-2 text-xs text-tertiary">Your account and all its data were deleted.</p>}

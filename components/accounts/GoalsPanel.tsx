@@ -65,7 +65,7 @@ export function GoalsPanel({ goals, accounts, setupRequired, onChange }: Props) 
     >
       {setupRequired && (
         <Notice tone="warning">
-          Goals need the database migration. Run <code className="text-xs">supabase/migrations/20261014_web_features.sql</code> in the Supabase SQL editor.
+          Goals need the database migration. Run <code className="break-all text-xs">supabase/migrations/20261014_web_features.sql</code> in the Supabase SQL editor.
         </Notice>
       )}
 

@@ -4,7 +4,8 @@ import { supabaseAdmin } from "./supabase-server"
 import { CATEGORIES } from "./categories"
 import { describeRule, type CategorizationRule } from "./rules"
 import { createRule, deleteRule, findOverlappingRules, listRules, parseRuleInput, previewRule, updateRule } from "./rules-server"
-import { flowOf, spendAmount, spendDate } from "./finance"
+import { flowOf, spendAmount, spendDate, tripSummary } from "./finance"
+import { BUDGETS_HINT, listBudgets, setBudget } from "./budgets"
 import type { Transaction } from "./types"
 
 /**
@@ -16,7 +17,7 @@ import type { Transaction } from "./types"
 const MODEL = process.env.ASSISTANT_MODEL ?? "openai/gpt-oss-120b"
 
 export interface AssistantAction {
-  type: "rule_created" | "rule_updated" | "rule_deleted"
+  type: "rule_created" | "rule_updated" | "rule_deleted" | "budget_set"
   summary: string
   applied?: number
 }
@@ -25,7 +26,7 @@ const today = () => new Date().toISOString().slice(0, 10)
 
 function systemPrompt(customCategories: string[]) {
   return `You are the assistant inside "Vertice", a personal finance dashboard. Today is ${today()}.
-You help the user (1) set up categorization rules in plain English and (2) answer questions about their spending.
+You help the user (1) set up categorization rules in plain English, (2) set monthly budgets per category, and (3) answer questions about their spending and budgets.
 
 DATA MODEL
 - Every transaction has: date, description (bank text, e.g. "Zelle payment to Rohan Utd Conf# x1f5"), merchant_name, amount, direction ("out" = money spent/sent, "in" = money received), category, and how it counts: income | expense | reimbursement (someone paying you back; reduces spending) | transfer (ignored, moving own money).
@@ -46,7 +47,9 @@ HOW TO WORK
 4. "Recurring" is a description, not a condition you can enforce. Use search results to confirm it repeats, and say so.
 5. Before creating a rule, call list_rules. If a rule already covers the request, say so instead of creating another; if one partly overlaps (same person/merchant, overlapping amounts), show it and ask whether to update it (update_rule) or keep both (create_rule with allow_overlap: true, only after the user says so). create_rule also enforces this and will refuse duplicates.
 5b. To change or remove rules, call list_rules first to get ids. update_rule / delete_rule only work once the user has asked for that change or said yes; otherwise they return ask_user_first, so ask: "You already have <rule>. Want me to change it to <new>, or keep both?"
-6. For spending questions use spending_summary / search_transactions. Never invent numbers.
+6. For spending questions use spending_summary / search_transactions. For trips or shared expenses use trip_summary (it already nets out what friends paid back). Never invent numbers or do arithmetic in your head: quote the tool's totals.
+7. If a tool returns an error saying a migration must be run, tell the user plainly that the app owner needs to run that database migration first. You cannot run it or "enable" anything yourself.
+8. Budgets are monthly per category. Use list_budgets before answering "am I over budget?". To set one, use set_budget with an existing category name (see the category list above). If the user asks you to suggest budgets, base them on their last 3 months from spending_summary, show the numbers, and only save them after they agree.
 Keep replies short and concrete: what you did, how many transactions changed, and anything ambiguous. Use plain text, no markdown tables.`
 }
 
@@ -127,6 +130,26 @@ const tools: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "list_budgets",
+      description: "Monthly budget per category, with this month's spending so far (and remaining / over).",
+      parameters: { type: "object", properties: { month: { type: "string", description: "YYYY-MM, default current month" } } },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_budget",
+      description: "Set (or with monthly_amount 0, remove) the monthly budget for one spending category.",
+      parameters: {
+        type: "object",
+        properties: { category: { type: "string" }, monthly_amount: { type: "number" } },
+        required: ["category", "monthly_amount"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "spending_summary",
       description: "Totals of spending (expenses minus reimbursements) and income for a date range, grouped by category or merchant.",
       parameters: {
@@ -135,6 +158,18 @@ const tools: ChatCompletionTool[] = [
           start_date: { type: "string" }, end_date: { type: "string" },
           group_by: { type: "string", enum: ["category", "merchant"] },
         },
+        required: ["start_date", "end_date"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "trip_summary",
+      description: "What a trip (or any shared-expense period) really cost the user: what they paid during the dates, minus what friends paid back on Zelle/Venmo/Splitwise (including settle-ups up to 45 days later), plus what the user sent friends for their share. Use for 'how much did my trip cost', 'what did I really spend in Miami', etc.",
+      parameters: {
+        type: "object",
+        properties: { start_date: { type: "string" }, end_date: { type: "string" } },
         required: ["start_date", "end_date"],
       },
     },
@@ -215,6 +250,23 @@ function spendingSummary(all: Txn[], a: Record<string, unknown>) {
   }
 }
 
+/** Groq call with retries on transient failures (rate limits, 5xx, malformed tool output). */
+async function callModel(messages: ChatCompletionMessageParam[]) {
+  let last: unknown
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return await groq.chat.completions.create({ model: MODEL, messages, tools, tool_choice: "auto", temperature: 0.2, max_tokens: 1500 })
+    } catch (e) {
+      last = e
+      const status = (e as { status?: number })?.status
+      const transient = !status || status === 429 || status >= 500 || /tool_use_failed|failed to call a function|rate/i.test(String((e as Error)?.message))
+      if (!transient || attempt === 3) break
+      await new Promise((r) => setTimeout(r, 800 * 2 ** attempt + Math.random() * 300))
+    }
+  }
+  throw last
+}
+
 export async function runAssistant(userId: string, history: { role: "user" | "assistant"; content: string }[]) {
   if (!process.env.GROQ_API_KEY) throw new Error("Set GROQ_API_KEY to use the assistant")
 
@@ -235,7 +287,20 @@ export async function runAssistant(userId: string, history: { role: "user" | "as
   let txnsDirty = false
 
   for (let step = 0; step < 8; step++) {
-    const res = await groq.chat.completions.create({ model: MODEL, messages, tools, tool_choice: "auto", temperature: 0.2, max_tokens: 1500 })
+    let res
+    try {
+      res = await callModel(messages)
+    } catch (e) {
+      console.error("Assistant model error:", e instanceof Error ? e.message : e)
+      const busy = /rate|429|overloaded|503|timeout/i.test(String((e as Error)?.message ?? e))
+      return {
+        reply: actions.length
+          ? "Done. (I hit a hiccup while writing the summary, but the changes above were saved.)"
+          : busy ? "The AI service is busy right now. Try again in a moment." : "Sorry, I couldn't reach the AI service. Try again in a moment.",
+        actions,
+        refresh: txnsDirty,
+      }
+    }
     const msg = res.choices[0].message
     if (!msg.tool_calls?.length) return { reply: msg.content?.trim() || "Done.", actions, refresh: txnsDirty }
 
@@ -253,6 +318,34 @@ export async function runAssistant(userId: string, history: { role: "user" | "as
           case "spending_summary":
             result = spendingSummary(all, args)
             break
+          case "trip_summary":
+            result = tripSummary(all, String(args.start_date), String(args.end_date))
+            break
+          case "list_budgets": {
+            const month = typeof args.month === "string" ? args.month : today().slice(0, 7)
+            const inMonth = all.filter((t) => spendDate(t).startsWith(month))
+            const spent = new Map<string, number>()
+            for (const t of inMonth) spent.set(t.category ?? "Uncategorized", (spent.get(t.category ?? "Uncategorized") ?? 0) + spendAmount(t))
+            const { budgets, setupRequired } = await listBudgets(userId)
+            result = setupRequired ? { error: BUDGETS_HINT } : {
+              month,
+              budgets: budgets.map((b) => { const sp = round(spent.get(b.category) ?? 0); return { category: b.category, monthly_budget: b.monthly_amount, spent: sp, remaining: round(b.monthly_amount - sp) } }),
+            }
+            break
+          }
+          case "set_budget": {
+            const amount = Number(args.monthly_amount)
+            const existing = (await listBudgets(userId)).budgets.find((b) => b.category.toLowerCase() === String(args.category).toLowerCase())
+            // Changing an existing budget needs the user's go-ahead (same rule as editing rules)
+            if (existing && amount !== existing.monthly_amount && !userApproved && !/\bbudget\b/i.test(lastUser)) {
+              result = { saved: false, reason: "ask_user_first", existing }
+              break
+            }
+            const b = await setBudget(userId, args.category, amount > 0 ? amount : null)
+            actions.push({ type: "budget_set", summary: b ? `${b.category}: $${b.monthly_amount}/month` : `Removed ${String(args.category)} budget` })
+            result = { ok: true, budget: b }
+            break
+          }
           case "list_rules":
             result = (await listRules(userId)).map((r) => ({ id: r.id, name: r.name, rule: describeRule(r) }))
             break

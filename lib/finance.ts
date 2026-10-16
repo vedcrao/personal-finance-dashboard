@@ -506,3 +506,68 @@ export function cleanAccountName(name: string): string {
     .replace(/\s{2,}/g, " ")
     .trim()
 }
+
+/* ------------------------------------------------------------------ */
+/* Trips / shared expenses                                             */
+/* ------------------------------------------------------------------ */
+
+export interface TripSummary {
+  start: string
+  end: string
+  /** What you paid for (expenses, minus refunds), excluding payment-app transfers */
+  paid: number
+  /** Money people sent you on Zelle/Venmo/Splitwise/… (linked or not) */
+  receivedBack: number
+  /** Money you sent people on payment apps (e.g. your share of what THEY fronted) */
+  sentToOthers: number
+  /** What the trip really cost you: paid − receivedBack + sentToOthers */
+  yourCost: number
+  byCategory: { category: string; amount: number }[]
+}
+
+/**
+ * True cost of a trip (or any shared-expense window), regardless of how repayments were split
+ * or consolidated (Splitwise lump sums, partial Venmos, others fronting parking…).
+ * Repayments are found by date range AND by link, so a Venmo that arrives a month later but
+ * was linked to a trip purchase still counts. Transfers between your own accounts are ignored.
+ */
+export function tripSummary(txns: Transaction[], start: string, end: string, settleDays = 45): TripSummary {
+  const settleEnd = ymd(addDays(parseYmd(end), settleDays))
+  const inTrip = (d: string) => d >= start && d <= end
+  let paid = 0
+  let receivedBack = 0
+  let sentToOthers = 0
+  const cats = new Map<string, number>()
+
+  for (const t of txns) {
+    const f = flowOf(t)
+    if (f === "transfer") continue
+    const p2p = isP2P(t)
+    if (p2p && t.amount < 0) {
+      // Paid back: linked to a trip purchase, or arrived during the trip / settle-up window unlinked
+      const linkedToTrip = t.reimburses && inTrip(t.reimburses.date)
+      const unlinkedInWindow = !t.reimburses && t.date >= start && t.date <= settleEnd
+      if (linkedToTrip || unlinkedInWindow) receivedBack += -t.amount
+      continue
+    }
+    if (p2p && t.amount > 0) {
+      if (t.date >= start && t.date <= settleEnd && f === "expense" && !NON_TRIP.has(t.category ?? "")) sentToOthers += t.amount
+      continue
+    }
+    if (!inTrip(t.date) || (f !== "expense" && f !== "reimbursement")) continue
+    if (NON_TRIP.has(t.category ?? "")) continue
+    const amt = spendAmount(t)
+    paid += amt
+    cats.set(t.category ?? "Uncategorized", (cats.get(t.category ?? "Uncategorized") ?? 0) + amt)
+  }
+  const r = (x: number) => Math.round(x * 100) / 100
+  return {
+    start, end,
+    paid: r(paid), receivedBack: r(receivedBack), sentToOthers: r(sentToOthers),
+    yourCost: r(paid - receivedBack + sentToOthers),
+    byCategory: [...cats.entries()].map(([category, amount]) => ({ category, amount: r(amount) })).sort((a, b) => b.amount - a.amount),
+  }
+}
+
+/** Bills that happen to fall during a trip aren't trip spending */
+const NON_TRIP = new Set(["Rent", "Utilities", "Subscriptions", "Debt Payments", "Gym", "Income"])

@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useState } from "react"
 import { useFinance } from "@/components/providers/FinanceProvider"
 import { PlaidKeysPanel } from "@/components/connect/PlaidKeysPanel"
+import { ErrorLog } from "@/components/settings/ErrorLog"
 import { Panel } from "@/components/ui/Panel"
 import { Button } from "@/components/ui/Button"
 import { Icon } from "@/components/ui/Icon"
@@ -72,6 +73,8 @@ export default function SettingsPage() {
           <Row href="/support" icon="help" label="Support" detail="FAQ and contact" />
         </div>
       </Panel>
+
+      {me?.owner && <ErrorLog />}
 
       <Panel title="Danger zone" icon="warning" iconClass="text-error">
         <p className="text-sm text-on-surface-variant">

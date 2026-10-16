@@ -23,8 +23,16 @@ export class MissingPlaidKeysError extends Error {
 const cache = new Map<string, { client: PlaidApi; env: PlaidEnv; at: number }>()
 const TTL = 5 * 60_000
 
+// Test-only: integration tests swap in a fake Plaid (never set in the app)
+let override: ((userId: string) => PlaidApi) | null = null
+export function __setPlaidClientForTests(fn: ((userId: string) => PlaidApi) | null) {
+  if (process.env.NODE_ENV === "production") throw new Error("not available in production")
+  override = fn
+}
+
 /** Plaid client using the signed-in user's own API keys (stored encrypted at signup). */
 export async function getPlaidClient(userId: string): Promise<PlaidApi> {
+  if (override) return override(userId)
   const hit = cache.get(userId)
   if (hit && Date.now() - hit.at < TTL) return hit.client
 

@@ -1,5 +1,5 @@
 import { groq } from "./groq"
-import { gemini } from "./gemini"
+import { getGemini } from "./gemini"
 
 /**
  * Categorization pipeline (cheapest + most deterministic first):
@@ -96,7 +96,7 @@ export function mapPlaidCategory(t: CategorizeInput): { category: string; confid
 /* LLM fallback                                                        */
 /* ------------------------------------------------------------------ */
 
-interface LlmItem { index: number; category: string; country: string | null; city: string | null }
+export interface LlmItem { index: number; category: string; country: string | null; city: string | null }
 
 function parseLlm(raw: string): LlmItem[] {
   let cleaned = raw.trim()
@@ -157,7 +157,7 @@ Respond ONLY with JSON: {"items":[{"index":1,"category":"Food & Dining","country
       console.warn("Groq failed, trying Gemini:", e instanceof Error ? e.message : e)
     }
   }
-  if (!raw && process.env.GOOGLE_AI_API_KEY) raw = (await gemini.generateContent(prompt)).response.text()
+  if (!raw && process.env.GOOGLE_AI_API_KEY) raw = (await getGemini().generateContent(prompt)).response.text()
   if (!raw) throw new Error("No LLM provider available")
   return parseLlm(raw)
 }
@@ -166,7 +166,10 @@ Respond ONLY with JSON: {"items":[{"index":1,"category":"Food & Dining","country
 /* Pipeline                                                            */
 /* ------------------------------------------------------------------ */
 
-export async function categorize(rows: CategorizeInput[], rules: Rule[]): Promise<{ results: CategorizeResult[]; llmUsed: number }> {
+export type LlmFn = (batch: CategorizeInput[]) => Promise<LlmItem[]>
+
+/** `llm` is injectable so tests can simulate (or disable) the model. */
+export async function categorize(rows: CategorizeInput[], rules: Rule[], llm: LlmFn = llmBatch): Promise<{ results: CategorizeResult[]; llmUsed: number }> {
   const results: CategorizeResult[] = []
   const forLlm: CategorizeInput[] = []
 
@@ -210,7 +213,7 @@ export async function categorize(rows: CategorizeInput[], rules: Rule[]): Promis
     await Promise.all(batches.slice(i, i + CONCURRENCY).map(async (batch) => {
       let items: LlmItem[] = []
       try {
-        items = await llmBatch(batch)
+        items = await llm(batch)
       } catch (e) {
         console.warn("LLM categorization unavailable, using Plaid categories:", e instanceof Error ? e.message : e)
       }
